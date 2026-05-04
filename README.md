@@ -224,7 +224,7 @@ You can adjust the other training configurations in the `configs/experiment/dplm
 #### Dataset
 We use the experimental structures from [PDB](https://pubmed.ncbi.nlm.nih.gov/10592235/) and AF2-predicted structures from [SwissProt](https://academic.oup.com/nar/article/50/D1/D439/6430488) dataset as training data for DPLM-2. We provide a preprocessed [HuggingFace dataset](https://huggingface.co/datasets/airkingbd/pdb_swissprot) of PDB and SwissProt. User can download the HF dataset locally in advance for faster loading by:
 ```bash
-bash scripts/download_pdb_swissprot.sh
+bash scripts/download_pdb_swissprot_hf.sh
 ```
 
 <!-- omit in toc -->
@@ -299,7 +299,7 @@ python generate_dplm.py --model_name airkingbd/${model_name} \
 	--saveto ${output_dir}
 
 # Evaluation
-bash anylasis/plddt_calculate.sh ${output_dir} # compute pLDDT using ESMFold
+bash analysis/plddt_calculate.sh ${output_dir} # compute pLDDT using ESMFold
 ```
 
 We also provide evaluation scripts in the  `analysis` folder. Users can use the `analysis/uncond_analysis.ipynb` to obtain average pLDDT score of each length and draw the line chart of the pLDDT score.
@@ -370,7 +370,7 @@ python generate_dplm2.py \
 DPLM-2 spontaneously enables protein structure prediction given sequence (i.e., folding) in a zero-shot manner.
 We use the [CAMEO 2022 (provided by EigenFold)](https://github.com/bjing2016/EigenFold) and a [PDB date split (provided by MultiFlow)](https://github.com/jasonkyuyim/multiflow) as testsets, and we provide our preprocessed dataset in this [link](https://zenodo.org/records/15424801), and can be downloaded by:
 ```bash
-bash script/download_metadata.sh
+bash scripts/download_metadata.sh
 ```
 Partial results are shown in the table below. For more details, please refer to [DPLM-2.1](https://arxiv.org/abs/2504.11454) paper.
 | Models | CAMEO 2022 |  | PDB date |  |
