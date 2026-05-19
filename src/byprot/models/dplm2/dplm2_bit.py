@@ -306,7 +306,8 @@ class DPLM2Bit(DPLM2):
         output_tokens.masked_scatter_(output_masks, _tokens[output_masks])
         output_scores.masked_scatter_(output_masks, _scores[output_masks])
 
-        history.append(output_tokens.clone())
+        if history is not None:
+            history.append(output_tokens.clone())
 
         return dict(
             output_tokens=output_tokens,
@@ -348,6 +349,7 @@ class DPLM2Bit(DPLM2):
         partial_masks=None,
         unmasking_strategy="stochastic1.0",  # [stochastic{temperature}, deterministic]
         sampling_strategy="annealing@1.1:0.1",
+        keep_history=False,
     ):
         self.eval()
         max_iter = max_iter
@@ -369,7 +371,7 @@ class DPLM2Bit(DPLM2):
             attentions=None,
             step=0,
             max_step=max_iter,
-            history=[initial_output_tokens.clone()],
+            history=[initial_output_tokens.clone()] if keep_history else None,
             temperature=temperature,
             type_ids=self.get_modality_type(initial_output_tokens),
         )
@@ -429,11 +431,14 @@ class DPLM2Bit(DPLM2):
         decoder_out = self.prepare_for_struct_tokenizer(
             decoder_out, non_special_sym_mask
         )
-        return {
+        outputs = {
             "output_tokens": decoder_out["output_tokens"],
             "res_mask": decoder_out["res_mask"],
             "final_struct_feature": decoder_out["final_struct_feature"],
         }
+        if keep_history:
+            outputs["history"] = decoder_out["history"]
+        return outputs
 
     def prepare_for_struct_tokenizer(self, decoder_out, non_special_sym_mask):
         lm_output_struct_tokens = decoder_out["output_tokens"].chunk(2, dim=1)[

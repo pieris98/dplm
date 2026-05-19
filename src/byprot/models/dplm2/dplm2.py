@@ -539,7 +539,8 @@ class MultimodalDiffusionProteinLanguageModel(nn.Module):
         output_tokens.masked_scatter_(output_masks, _tokens[output_masks])
         output_scores.masked_scatter_(output_masks, _scores[output_masks])
 
-        history.append(output_tokens.clone())
+        if history is not None:
+            history.append(output_tokens.clone())
 
         return dict(
             output_tokens=output_tokens,
@@ -746,6 +747,7 @@ class MultimodalDiffusionProteinLanguageModel(nn.Module):
         partial_masks=None,
         unmasking_strategy="stochastic1.0",  # [stochastic{temperature}, deterministic]
         sampling_strategy="annealing@2.0:0.1",
+        keep_history=False,
     ):
         self.eval()
         max_iter = max_iter
@@ -767,7 +769,7 @@ class MultimodalDiffusionProteinLanguageModel(nn.Module):
             attentions=None,
             step=0,
             max_step=max_iter,
-            history=[initial_output_tokens.clone()],
+            history=[initial_output_tokens.clone()] if keep_history else None,
             temperature=temperature,
             type_ids=self.get_modality_type(initial_output_tokens),
         )
@@ -822,6 +824,9 @@ class MultimodalDiffusionProteinLanguageModel(nn.Module):
             )
 
         decoder_out = prev_decoder_out
-        return {
+        outputs = {
             "output_tokens": decoder_out["output_tokens"],
         }
+        if keep_history:
+            outputs["history"] = decoder_out["history"]
+        return outputs

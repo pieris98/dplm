@@ -20,7 +20,6 @@ import re
 import shutil
 import subprocess
 
-import GPUtil
 import mdtraj as md
 import numpy as np
 import pandas as pd
@@ -35,6 +34,11 @@ from pytorch_lightning.utilities.rank_zero import rank_zero_only
 from torch.nn import functional as F
 
 from byprot.datamodules.pdb_dataset import utils as du
+
+try:
+    import GPUtil
+except ImportError:
+    GPUtil = None
 
 CA_IDX = residue_constants.atom_order["CA"]
 
@@ -99,6 +103,8 @@ def dataset_creation(dataset_class, cfg, task):
 
 
 def get_available_device(num_device):
+    if GPUtil is None:
+        return list(range(min(num_device, torch.cuda.device_count())))
     return GPUtil.getAvailable(order="memory", limit=8)[:num_device]
 
 

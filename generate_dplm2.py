@@ -1,4 +1,5 @@
 import argparse
+import gc
 import os
 
 import torch
@@ -13,9 +14,24 @@ from byprot.models.dplm2 import (
 )
 
 
-def initialize_conditional_generation(
-    fasta_path, tokenizer, device, args, model=None
-):
+def log_cuda_memory(label):
+    if os.environ.get("DPLM_LOG_GPU_MEM", "0") != "1":
+        return
+    if not torch.cuda.is_available():
+        print(f"[cuda-mem] {label}: CUDA unavailable")
+        return
+    allocated = torch.cuda.memory_allocated() / 1024**3
+    reserved = torch.cuda.memory_reserved() / 1024**3
+    peak_allocated = torch.cuda.max_memory_allocated() / 1024**3
+    print(
+        f"[cuda-mem] {label}: "
+        f"allocated={allocated:.2f}GiB "
+        f"reserved={reserved:.2f}GiB "
+        f"peak_allocated={peak_allocated:.2f}GiB"
+    )
+
+
+def initialize_conditional_generation(fasta_path, tokenizer, args):
     input_data_aatype = []
     input_data_struct_tokens = []
     input_data_name = []
@@ -60,56 +76,7 @@ def initialize_conditional_generation(
     input_data_struct_tokens = list(struct)
     input_data_name = list(name)
 
-    def build_batch(input_data_aatype, input_data_struct_tokens):
-        batch_struct = tokenizer.batch_encode_plus(
-            input_data_struct_tokens,
-            add_special_tokens=False,
-            padding="longest",
-            return_tensors="pt",
-        )
-
-        batch_aa = tokenizer.batch_encode_plus(
-            input_data_aatype,
-            add_special_tokens=False,
-            padding="longest",
-            return_tensors="pt",
-        )
-
-        input_tokens = torch.concat(
-            [batch_struct["input_ids"], batch_aa["input_ids"]], dim=1
-        )
-        input_tokens = input_tokens.to(device)
-
-        aa_type = 1
-        struct_type = 0
-        non_special = model.get_non_special_symbol_mask(input_tokens)
-        type_ids = model.get_modality_type(input_tokens)
-
-        # folding
-        if args.task == "folding":
-            # mask struct token
-            input_tokens.masked_fill_(
-                (type_ids == struct_type) & non_special,
-                tokenizer._token_to_id[tokenizer.struct_mask_token],
-            )
-            mask_type = aa_type
-        # inverse folding
-        elif args.task == "inverse_folding":
-            # mask aa token
-            input_tokens.masked_fill_(
-                (type_ids == aa_type) & non_special,
-                tokenizer._token_to_id[tokenizer.aa_mask_token],
-            )
-            mask_type = struct_type
-
-        # construct batch
-        batch = {}
-        batch["input_tokens"] = input_tokens
-        batch["partial_mask"] = type_ids == mask_type
-
-        return batch
-
-    batches = []
+    batch_inputs = []
     input_data_name_list = []
     # split batch according to args.batch_size
     if args.batch_size > 0:
@@ -119,18 +86,72 @@ def initialize_conditional_generation(
         while end < num + args.batch_size:
             input_data_aa_batch = input_data_aatype[start:end]
             input_data_struct_batch = input_data_struct_tokens[start:end]
-            new_batch = build_batch(
-                input_data_aa_batch, input_data_struct_batch
+            batch_inputs.append(
+                (input_data_aa_batch, input_data_struct_batch)
             )
-            batches.append(new_batch)
             input_data_name_list.append(input_data_name[start:end])
             start += args.batch_size
             end += args.batch_size
     else:
-        batches = [build_batch(input_data_aatype, input_data_struct_tokens)]
+        batch_inputs = [(input_data_aatype, input_data_struct_tokens)]
         input_data_name_list = [input_data_name]
 
-    return batches, input_data_name_list
+    return batch_inputs, input_data_name_list
+
+
+def build_conditional_batch(
+    input_data_aatype,
+    input_data_struct_tokens,
+    tokenizer,
+    device,
+    args,
+    model,
+):
+    batch_struct = tokenizer.batch_encode_plus(
+        input_data_struct_tokens,
+        add_special_tokens=False,
+        padding="longest",
+        return_tensors="pt",
+    )
+
+    batch_aa = tokenizer.batch_encode_plus(
+        input_data_aatype,
+        add_special_tokens=False,
+        padding="longest",
+        return_tensors="pt",
+    )
+
+    input_tokens = torch.concat(
+        [batch_struct["input_ids"], batch_aa["input_ids"]], dim=1
+    ).to(device)
+
+    aa_type = 1
+    struct_type = 0
+    non_special = model.get_non_special_symbol_mask(input_tokens)
+    type_ids = model.get_modality_type(input_tokens)
+
+    # folding task
+    if args.task == "folding":
+        #mask struct token
+        input_tokens.masked_fill_(
+            (type_ids == struct_type) & non_special,
+            tokenizer._token_to_id[tokenizer.struct_mask_token],
+        )
+        mask_type = aa_type
+    elif args.task == "inverse_folding":
+        # mask aa token
+        input_tokens.masked_fill_(
+            (type_ids == aa_type) & non_special,
+            tokenizer._token_to_id[tokenizer.aa_mask_token],
+        )
+        mask_type = struct_type
+    else:
+        raise NotImplementedError
+
+    return {
+        "input_tokens": input_tokens,
+        "partial_mask": type_ids == mask_type,
+    }
 
 
 def initialize_generation(
@@ -233,6 +254,7 @@ def unconditional_generate(args):
                     temperature=args.temperature,
                     unmasking_strategy=args.unmasking_strategy,
                     sampling_strategy=args.sampling_strategy,
+                    keep_history=args.keep_history,
                 )
                 if args.task == "backbone_generation":
                     outputs["output_tokens"] = torch.cat(
@@ -301,12 +323,26 @@ def conditional_generate_from_fasta(args):
     if issubclass(type(model.net), PeftModel):
         model.net = model.net.merge_and_unload()
 
-    batches, name_lists = initialize_conditional_generation(
-        args.input_fasta_path, tokenizer, device, args=args, model=model
+    batch_inputs, name_lists = initialize_conditional_generation(
+        args.input_fasta_path, tokenizer, args=args
     )
 
-    for i, batch in enumerate(tqdm(batches, desc=f"{args.task}")):
-        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+    for i, (batch_aa, batch_struct) in enumerate(
+        tqdm(batch_inputs, desc=f"{args.task}")
+    ):
+        log_cuda_memory(f"batch {i} before build")
+        batch = build_conditional_batch(
+            batch_aa,
+            batch_struct,
+            tokenizer,
+            device,
+            args=args,
+            model=model,
+        )
+        log_cuda_memory(f"batch {i} after build")
+        with torch.inference_mode(), torch.cuda.amp.autocast(
+            dtype=torch.bfloat16
+        ):
             outputs = model.generate(
                 input_tokens=batch["input_tokens"],
                 max_iter=args.max_iter,
@@ -314,7 +350,9 @@ def conditional_generate_from_fasta(args):
                 unmasking_strategy=args.unmasking_strategy,
                 sampling_strategy=args.sampling_strategy,
                 partial_masks=batch["partial_mask"],
+                keep_history=args.keep_history,
             )
+        log_cuda_memory(f"batch {i} after generate")
 
         save_results(
             outputs=outputs,
@@ -326,6 +364,13 @@ def conditional_generate_from_fasta(args):
             save_pdb=args.save_pdb,
             continue_write=True,
         )
+        log_cuda_memory(f"batch {i} after save")
+        del outputs, batch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+        log_cuda_memory(f"batch {i} after cleanup")
 
 
 def save_fasta(
@@ -480,6 +525,11 @@ def main():
     parser.add_argument("--batch_size", type=int, default=50)
     parser.add_argument("--save_pdb", type=bool, default=True)
     parser.add_argument("--bit_model", action="store_true")
+    parser.add_argument(
+        "--keep_history",
+        action="store_true",
+        help="Keep per-step decoding history tensors. This is memory intensive.",
+    )
 
     # generation options
     ## task option

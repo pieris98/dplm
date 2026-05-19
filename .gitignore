@@ -1,8 +1,16 @@
 # Byte-compiled / optimized / DLL files
+.codex
+.opencode
+.claude
+*.png
+*.jpeg
+*.jpg
+results/
 __pycache__/
 *.py[cod]
 *$py.class
-
+data-bin/
+outputs/
 # C extensions
 *.so
 

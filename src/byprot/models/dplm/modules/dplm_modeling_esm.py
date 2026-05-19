@@ -208,9 +208,9 @@ class ModifiedEsmModel(EsmModel):
             use_cache = False
 
         if input_ids is not None and inputs_embeds is not None:
-            raise ValueError(
-                "You cannot specify both input_ids and inputs_embeds at the same time"
-            )
+            input_shape = inputs_embeds.size()[:-1]
+            if input_ids.size() != input_shape:
+                raise ValueError("input_ids and inputs_embeds must have matching sequence shapes")
         elif input_ids is not None:
             input_shape = input_ids.size()
         elif inputs_embeds is not None:
