@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CONDA_ACTIVATE="${CONDA_ACTIVATE:-/home/cherry/miniconda/bin/activate}"
+CONDA_ACTIVATE="${CONDA_ACTIVATE:-${CONDA_PREFIX:-}/bin/activate}"
 CONDA_ENV="${CONDA_ENV:-dplm}"
 
 MODEL_NAME="airkingbd/dplm2_650m"

@@ -4,7 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-DPLM_CONDA_ACTIVATE="${DPLM_CONDA_ACTIVATE:-/home/cherry/miniconda/bin/activate}"
+DPLM_CONDA_ACTIVATE="${DPLM_CONDA_ACTIVATE:-${CONDA_PREFIX:-}/bin/activate}"
 DPLM_CONDA_ENV="${DPLM_CONDA_ENV:-dplm}"
 DPLM_INSTALL_ROOT="${DPLM_INSTALL_ROOT:-${SCRATCH:-${WORK:-${HOME}}}/dplm_reproduce}"
 DPLM_CACHE_ROOT="${DPLM_CACHE_ROOT:-${DPLM_INSTALL_ROOT}/cache}"
