@@ -5,6 +5,7 @@
 import importlib
 import operator
 import os
+from contextlib import suppress
 
 # from pytorch_lightning.utilities.imports import _RICH_AVAILABLE
 from importlib.util import find_spec
@@ -128,7 +129,8 @@ if _RICH_AVAILABLE:
                 self._reset_progress_bar_ids()
                 reconfigure(**self._console_kwargs)
                 self._console = get_console()
-                self._console.clear_live()
+                with suppress(IndexError):
+                    self._console.clear_live()
                 self._metric_component = BetterMetricsTextColumn(
                     trainer,
                     self.theme.metrics,

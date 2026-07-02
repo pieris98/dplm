@@ -115,7 +115,7 @@ def get_ext_modules():
             return raw_output, bare_metal_major, bare_metal_minor
 
     compute_capabilities = set([
-        (3, 7), # K80, e.g.
+        # CUDA 12 no longer supports Kepler targets such as sm_37.
         (5, 2), # Titan X
         (6, 1), # GeForce 1000-series
     ])
@@ -123,7 +123,12 @@ def get_ext_modules():
     compute_capabilities.add((7, 0))
     _, bare_metal_major, _ = get_cuda_bare_metal_version(CUDA_HOME)
     if int(bare_metal_major) >= 11:
-        compute_capabilities.add((8, 0))
+        compute_capabilities.update([
+            (8, 0), # A100
+            (8, 6), # A10/A40/RTX 30-series
+            (8, 9), # L4/L40/RTX 40-series
+            (9, 0), # H100
+        ])
 
     compute_capability, _ = get_nvidia_cc()
     if compute_capability is not None:

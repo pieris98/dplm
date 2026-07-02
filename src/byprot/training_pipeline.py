@@ -39,9 +39,11 @@ def train(config: DictConfig) -> Optional[float]:
         seed_everything(config.seed, workers=True)
 
     # Convert relative ckpt path to absolute path if necessary
-    ckpt_path = not config.train.get(
-        "force_restart", False
-    ) and config.train.get("ckpt_path")
+    ckpt_path = (
+        config.train.get("ckpt_path")
+        if not config.train.get("force_restart", False)
+        else None
+    )
     if ckpt_path:
         ckpt_path = utils.resolve_ckpt_path(
             ckpt_dir=config.paths.ckpt_dir, ckpt_path=ckpt_path
