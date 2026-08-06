@@ -377,6 +377,8 @@ class ModifiedEsmEncoder(EsmEncoder):
         output_hidden_states=False,
         return_dict=True,
         type_ids=None,
+        layer_adapters=None,
+        layer_adapter_inputs=None,
     ):
         if self.gradient_checkpointing and self.training:
             if use_cache:
@@ -428,6 +430,20 @@ class ModifiedEsmEncoder(EsmEncoder):
                 )
 
             hidden_states = layer_outputs[0]
+            # Conditional parallel adapter: sum the adapter outputs into the
+            # residual stream before the next layer. When ``layer_adapters`` is
+            # None or the per-layer entry is None, this is a no-op and the
+            # forward path is numerically identical to the base DPLM-2.
+            if (
+                layer_adapters is not None
+                and layer_adapter_inputs is not None
+                and layer_adapters[i] is not None
+                and layer_adapter_inputs[i] is not None
+            ):
+                adapter_update = layer_adapters[i](
+                    hidden_states, layer_adapter_inputs[i]
+                )
+                hidden_states = hidden_states + adapter_update
             if use_cache:
                 next_decoder_cache = next_decoder_cache + (layer_outputs[-1],)
             if output_attentions:
@@ -497,6 +513,8 @@ class ModifiedEsmModel(EsmModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         type_ids: Optional[torch.Tensor] = None,
+        layer_adapters: Optional[List] = None,
+        layer_adapter_inputs: Optional[List] = None,
     ) -> Union[
         Tuple[torch.Tensor], BaseModelOutputWithPoolingAndCrossAttentions
     ]:
@@ -615,6 +633,8 @@ class ModifiedEsmModel(EsmModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
             type_ids=type_ids,
+            layer_adapters=layer_adapters,
+            layer_adapter_inputs=layer_adapter_inputs,
         )
         sequence_output = encoder_outputs[0]
         pooled_output = (
@@ -663,6 +683,8 @@ class EsmForDPLM2(EsmForMaskedLM):
         return_dict=None,
         encoder_hidden_states=None,
         encoder_attention_mask=None,
+        layer_adapters=None,
+        layer_adapter_inputs=None,
     ):
         if attention_mask is None:
             attention_mask = input_ids.ne(self.pad_id)
@@ -674,6 +696,8 @@ class EsmForDPLM2(EsmForMaskedLM):
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
             type_ids=type_ids,
+            layer_adapters=layer_adapters,
+            layer_adapter_inputs=layer_adapter_inputs,
         )
 
         sequence_output = outputs[0]

@@ -6,3 +6,11 @@ from .dplm2 import MultimodalDiffusionProteinLanguageModel
 from .dplm2_bit import DPLM2Bit
 from .modules.dplm2_bit_modeling_esm import EsmForDPLM2Bit
 from .modules.dplm2_modeling_esm import EsmForDPLM2
+from .dplm2_conditional import (
+    AdapterConfig,
+    AnnotationsConfig,
+    ConditionalDPLM2,
+    ConditionalDPLM2Config,
+    ConditioningConfig,
+    ExternalMemoryConfig,
+)

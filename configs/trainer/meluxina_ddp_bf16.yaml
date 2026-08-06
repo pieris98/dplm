@@ -1,0 +1,35 @@
+# Meluxina DDP trainer config for conditional DPLM-2 training.
+#
+# Target: NVIDIA A100 40GB GPUs, 4 GPUs per node, parameterized node count.
+# Set the number of nodes via the sbatch (--nodes) and the env var
+# NNODS (or trainer.num_nodes). DDP is configured to find unused parameters
+# (the frozen base has requires_grad=False, which DDP needs to handle).
+#
+# Usage in Hydra:
+#   python train.py experiment=dplm2/cond_dplm2_650m_cfpgen trainer=meluxina_ddp_bf16 \
+#     trainer.num_nodes=${NUM_NODES} trainer.max_steps=100000
+
+defaults:
+  - default.yaml
+
+accelerator: "cuda"
+devices: 4
+num_nodes: 1
+strategy: ddp_find_unused_parameters_true
+precision: "bf16"
+sync_batchnorm: true
+
+min_epochs: 1
+max_epochs: 10000
+max_steps: 100000
+gradient_clip_val: 0.5
+accumulate_grad_batches: 1
+
+enable_progress_bar: true
+log_every_n_steps: 10
+val_check_interval: 500
+check_val_every_n_epoch: null
+num_sanity_val_steps: 1
+
+use_distributed_sampler: false
+reload_dataloaders_every_n_epochs: 1

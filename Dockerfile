@@ -19,7 +19,7 @@
 # Run with NVIDIA Container Toolkit:
 #   docker run --rm --gpus all -it dplm:cu121-torch220
 
-FROM nvidia/cuda:12.9.1-devel-ubuntu22.04
+FROM nvidia/cuda:12.9.1-devel-ubuntu22.04 AS runtime-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG VENV_DIR=/opt/venv
@@ -82,14 +82,42 @@ RUN python -m pip install --no-build-isolation \
         --index-url https://download.pytorch.org/whl/cu121 \
     && python -m pip install -r docker/dplm-pip-freeze.txt
 
+FROM runtime-base AS model-cache
+
 RUN python - <<'PY'
 import os
+import shutil
+import time
+from pathlib import Path
+
 from huggingface_hub import snapshot_download
 
 models = os.environ.get("DPLM_HF_MODELS", "").split()
+cache_dir = Path(os.environ.get("HF_HUB_CACHE", "/opt/huggingface/hub"))
+
+def repo_cache_dir(repo_id):
+    return cache_dir / f"models--{repo_id.replace('/', '--')}"
+
 for repo_id in models:
     print(f"Caching Hugging Face model: {repo_id}")
-    snapshot_download(repo_id=repo_id, repo_type="model")
+    last_error = None
+    for attempt in range(1, 4):
+        try:
+            snapshot_download(
+                repo_id=repo_id,
+                repo_type="model",
+                max_workers=1,
+                resume_download=True,
+                force_download=attempt > 1,
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            print(f"Attempt {attempt}/3 failed for {repo_id}: {exc!r}")
+            shutil.rmtree(repo_cache_dir(repo_id), ignore_errors=True)
+            time.sleep(10 * attempt)
+    else:
+        raise SystemExit(f"Failed to cache {repo_id}: {last_error!r}")
 PY
 
 RUN mkdir -p "${TORCH_HOME}/hub/checkpoints" "${XDG_CACHE_HOME}" "${TRITON_CACHE_DIR}" "${MPLCONFIGDIR}" \
@@ -101,6 +129,7 @@ import esm
 fair_esm_loaders = [
     ("esm_if1_gvp4_t16_142M_UR50", esm.pretrained.esm_if1_gvp4_t16_142M_UR50),
     ("esm2_t6_8M_UR50D", esm.pretrained.esm2_t6_8M_UR50D),
+    ("esm2_t36_3B_UR50D", esm.pretrained.esm2_t36_3B_UR50D),
 ]
 
 for name, loader in fair_esm_loaders:
@@ -115,11 +144,24 @@ RUN mkdir -p "${TORCH_HOME}/hub/checkpoints" \
         https://dl.fbaipublicfiles.com/fair-esm/models/esmfold_3B_v1.pt \
         --output "${TORCH_HOME}/hub/checkpoints/esmfold_3B_v1.pt"
 
+FROM runtime-base AS final
+
+WORKDIR /workspace/dplm
+
 COPY . .
+
+# Bake in the conditional-training dataset (gitignored under data-bin/).
+# ~1.1 GB: CFP-Gen labels joined onto DPLM-2's shipped struct tokens.
+# If you regenerate this dataset, rebuild the image or mount over it at
+# /workspace/dplm/data-bin/cfpgen_dplm2_joined.
+COPY data-bin/cfpgen_dplm2_joined/ /workspace/dplm/data-bin/cfpgen_dplm2_joined/
 
 RUN python -m pip install --no-build-isolation -e .
 
 RUN python -m pip install --no-build-isolation -e vendor/openfold
+
+COPY --from=model-cache /opt/huggingface /opt/huggingface
+COPY --from=model-cache /opt/torch /opt/torch
 
 RUN python - <<'PY'
 import sys
