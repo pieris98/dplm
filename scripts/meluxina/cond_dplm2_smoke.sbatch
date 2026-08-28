@@ -27,7 +27,7 @@
 #
 # Prerequisites (one-time, on a login node):
 #   module load Apptainer
-#   apptainer pull ${SCRATCH}/dplm_cond.sif docker://pieris98/dplm:cu121-torch220-cond
+#   apptainer pull ${PROJECT}/dplm_cond.sif docker://pieris98/dplm:cu121-torch220-cond
 #   export WANDB_API_KEY=...   (or submit with WANDB_MODE=offline)
 
 set -Eeuo pipefail

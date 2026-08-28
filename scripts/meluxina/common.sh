@@ -9,9 +9,14 @@
 #      GPU access (--nv), the repo bind-mounted at the same path, and all
 #      relevant env vars forwarded.
 
+# --- Storage base ----------------------------------------------------------
+# Meluxina project layout: no $SCRATCH. Use $PROJECT for large artifacts
+# (the ~57 GB SIF, HF cache), falling back to $HOME if unset.
+DPLM_BASE="${DPLM_BASE:-${PROJECT:-${SCRATCH:-$HOME}}}"
+
 # --- Locate the SIF -------------------------------------------------------
-# Order: $DPLM_SIF, then $SCRATCH/dplm_cond.sif, then repo root.
-DPLM_SIF="${DPLM_SIF:-${SCRATCH:-$HOME}/dplm_cond.sif}"
+# Order: $DPLM_SIF, then $DPLM_BASE/dplm_cond.sif, then repo root.
+DPLM_SIF="${DPLM_SIF:-${DPLM_BASE}/dplm_cond.sif}"
 if [[ ! -f "$DPLM_SIF" ]]; then
   # fall back to searching a couple of common spots
   for cand in "$HOME/dplm_cond.sif" "$(pwd)/dplm_cond.sif"; do
@@ -22,7 +27,7 @@ if [[ ! -f "$DPLM_SIF" ]]; then
   echo "[meluxina] ERROR: Apptainer image not found."
   echo "[meluxina] Pull it first (one-time, on a login node):"
   echo "  module load Apptainer"
-  echo "  apptainer pull ${SCRATCH:-\$HOME}/dplm_cond.sif docker://pieris98/dplm:cu121-torch220-cond"
+  echo "  apptainer pull ${DPLM_BASE}/dplm_cond.sif docker://pieris98/dplm:cu121-torch220-cond"
   exit 1
 fi
 echo "[meluxina] SIF: ${DPLM_SIF}"
@@ -31,7 +36,7 @@ echo "[meluxina] SIF: ${DPLM_SIF}"
 # The repo lives on the shared FS and is mounted read-write so checkpoints,
 # wandb logs, and generation outputs persist after the job.
 REPO_DIR="${ROOT_DIR}"
-RUN_SCRATCH="${RUN_SCRATCH:-${SCRATCH:-/tmp}/dplm_run_${SLURM_JOB_ID:-manual}}"
+RUN_SCRATCH="${RUN_SCRATCH:-${DPLM_BASE}/dplm_run_${SLURM_JOB_ID:-manual}}"
 mkdir -p "${RUN_SCRATCH}/hf" "${RUN_SCRATCH}/tmp"
 
 # --- Environment forwarded into the container ------------------------------
