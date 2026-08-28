@@ -27,7 +27,9 @@
 
 set -Eeuo pipefail
 
-ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+# Parastation/SLURM executes this script from a spool copy, so __FILE__-based
+# path resolution breaks. Use SLURM_SUBMIT_DIR (the submission cwd) instead.
+ROOT_DIR="${ROOT_DIR:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 cd "${ROOT_DIR}"
 mkdir -p logs/slurm
 source "${ROOT_DIR}/scripts/meluxina/common.sh"
