@@ -14,6 +14,30 @@
 #   4. Provide `run_in_container CMD...` that executes inside the SIF with
 #      GPU access (--nv) and all relevant env vars forwarded.
 
+# --- Ensure apptainer is available -----------------------------------------
+# SLURM batch shells are minimal: they do NOT source ~/.bashrc, so a
+# `module load Apptainer` done on the login node does not carry over.
+if ! command -v apptainer >/dev/null 2>&1; then
+  if command -v module >/dev/null 2>&1; then
+    echo "[meluxina] loading Apptainer module (not inherited from login shell)"
+    module load Apptainer 2>/dev/null || source /etc/profile.d/modules.sh 2>/dev/null && module load Apptainer
+  fi
+fi
+if ! command -v apptainer >/dev/null 2>&1; then
+  # Last resort: common install prefixes
+  for p in /opt/paraview/Apptainer /usr/local/apptainer/bin /opt/apptainer/bin; do
+    [[ -x "$p/apptainer" || -x "$p/bin/apptainer" ]] && export PATH="$p:$p/bin:${PATH}" && break
+  done
+fi
+if ! command -v apptainer >/dev/null 2>&1; then
+  echo "[meluxina] ERROR: apptainer not found. On the login node run:"
+  echo "  module load Apptainer"
+  echo "and either (a) add that to ~/.bashrc, or (b) find the binary:"
+  echo "  module show Apptainer   # note the path it prepends"
+  echo "and export APPTAINER_BIN=<that dir> before submitting."
+  exit 1
+fi
+
 # --- Storage base ----------------------------------------------------------
 # Meluxina project layout: no $SCRATCH. Use $PROJECT for large artifacts
 # (the ~57 GB SIF, HF cache), falling back to $HOME if unset.
