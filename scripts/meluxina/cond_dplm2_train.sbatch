@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=cond_dplm2
+#SBATCH --account=p201418
 #SBATCH --partition=gpu
+#SBATCH --qos=long
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:4

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=cond_dplm2_smoke
+#SBATCH --account=p201418
 #SBATCH --partition=gpu
+#SBATCH --qos=test
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:4
