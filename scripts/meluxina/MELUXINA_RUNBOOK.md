@@ -10,6 +10,14 @@ on a **login node** with access to the `gpu` partition.
 | `$HOME` | `/home/users/u104556` | small stuff only (quota-limited) |
 | `$PROJECT` | `/project/home/p201418` | **the SIF, HF cache, run artifacts** (large quota) |
 
+**Key idea:** the Apptainer jobs bind-mount only your repo's *code*
+(`src/`, `configs/`, `scripts/`, the CLI scripts) over the image — so a
+`git pull` updates code without rebuilding the image — while the image's
+**compiled openfold CUDA kernels** and **baked-in 45K dataset** remain
+visible. Do NOT bind the whole repo dir over `/workspace/dplm`; that
+shadows the compiled artifacts and breaks openfold
+(`ModuleNotFoundError: attn_core_inplace_cuda`).
+
 ---
 
 ## Step 0 — One-time environment prep (login node)
@@ -30,8 +38,6 @@ sinfo -p gpu
 # Confirm the paths
 echo "HOME=$HOME  PROJECT=$PROJECT"
 ```
-
----
 
 ## Step 1 — Pull the Docker image into an Apptainer SIF (login node, ~10-20 min)
 
@@ -57,29 +63,14 @@ git checkout main
 > git push origin main
 > ```
 
-## Step 3 — Copy the dataset out of the image (one-time, ~1.1 GB)
-
-The container mounts your repo checkout over `/workspace/dplm`, which
-**shadows** the image's baked-in copy of the dataset. The dataloader reads
-`$PROJECT_ROOT/data-bin/...` from the mounted repo — so the parquet must
-exist in the repo checkout:
-
-```bash
-cd $PROJECT/dplm-repo
-mkdir -p data-bin/cfpgen_dplm2_joined
-apptainer exec $PROJECT/dplm_cond.sif \
-  cat /workspace/dplm/data-bin/cfpgen_dplm2_joined/joined_train_safe.parquet \
-  > data-bin/cfpgen_dplm2_joined/joined_train_safe.parquet
-ls -lh data-bin/cfpgen_dplm2_joined/   # expect ~61M
-```
-
-## Step 4 — Quick container sanity check (login node, no GPU)
+## Step 3 — Quick container sanity check (login node, no GPU)
 
 ```bash
 cd $PROJECT/dplm-repo
 
 apptainer exec \
-  --bind $PROJECT/dplm-repo:/workspace/dplm \
+  --bind $PROJECT/dplm-repo/src:/workspace/dplm/src \
+  --bind $PROJECT/dplm-repo/configs:/workspace/dplm/configs \
   $PROJECT/dplm_cond.sif \
   python -c "
 import wandb, torch
@@ -94,11 +85,13 @@ print('ALL IMPORTS + DATASET OK')
 ```
 
 Expected last lines: `dataset rows: 45696` and `ALL IMPORTS + DATASET OK`.
-(No GPU on the login node — fine; compute nodes get GPUs via `--nv`.)
+(The CUDA-not-found / CPU-accelerator warnings are normal on a login node —
+compute nodes get GPUs via `--nv`. The `df: ~/.triton/...` lines are
+harmless noise.)
 
 ---
 
-## Step 5 — Submit the smoke test (the actual validation)
+## Step 4 — Submit the smoke test (the actual validation)
 
 ```bash
 cd $PROJECT/dplm-repo
@@ -121,6 +114,11 @@ squeue -u $USER                                   # job status
 tail -f logs/slurm/cond_dplm2_smoke_<JOBID>.out   # live log
 ```
 
+Note: SLURM's stdout (`logs/slurm/...`) is written by the *host* shell into
+the repo checkout; training checkpoints / wandb / generation outputs are
+written by the *container* into `$PROJECT/dplm-logs`, `$PROJECT/dplm-wandb`,
+`$PROJECT/dplm-gen` respectively (bind-mounted — see reference below).
+
 ### Smoke-test pass criteria (in the `.out` file)
 
 | Check | Look for |
@@ -137,7 +135,7 @@ If anything fails, the traceback is in the `.out`/`.err` — bring it back and w
 
 ---
 
-## Step 6 — Submit the FULL training run
+## Step 5 — Submit the FULL training run
 
 ```bash
 cd $PROJECT/dplm-repo
@@ -158,6 +156,7 @@ Monitor:
 squeue -u $USER
 tail -f logs/slurm/cond_dplm2_<JOBID>.out
 # wandb dashboard: https://wandb.ai/<entity>/CondDPLM2_650m
+# checkpoints land in: $PROJECT/dplm-logs/<run-name>/checkpoints/
 
 # After ~1 hour — loss should be trending down from ~2.9:
 grep "Validation Info" logs/slurm/cond_dplm2_<JOBID>.out | tail -5
@@ -171,18 +170,27 @@ The sbatches source `scripts/meluxina/common.sh`, which runs:
 
 ```
 apptainer exec --nv \
-  --bind $PROJECT/dplm-repo:/workspace/dplm \          # your git clone shadows baked-in code
-  --bind $PROJECT/dplm_run_<jobid>/hf:/opt/huggingface \  # writable HF cache
-  --bind $PROJECT/dplm_run_<jobid>/tmp:/tmp \             # writable /tmp
-  --env WANDB_API_KEY=... --env HF_HOME=/opt/huggingface ... \
+  --bind $PROJECT/dplm-repo/src:/workspace/dplm/src \        # fresh code
+  --bind $PROJECT/dplm-repo/configs:/workspace/dplm/configs \
+  --bind $PROJECT/dplm-repo/scripts:/workspace/dplm/scripts \
+  --bind $PROJECT/dplm-repo/train.py:/workspace/dplm/train.py \
+  --bind $PROJECT/dplm-repo/generate_conditional_dplm2.py:... \
+  --bind $PROJECT/dplm-logs:/workspace/dplm/logs \           # persistent ckpts
+  --bind $PROJECT/dplm-wandb:/workspace/dplm/wandb \         # wandb local logs
+  --bind $PROJECT/dplm-gen:/workspace/dplm/generation-results \
+  --bind $PROJECT/dplm_run_<jobid>/hf:/opt/huggingface \     # writable HF cache
+  --bind $PROJECT/dplm_run_<jobid>/tmp:/tmp \
+  --pwd /workspace/dplm \
   $PROJECT/dplm_cond.sif \
   python train.py ...
 ```
 
 - `--nv` exposes the NVIDIA drivers (GPU access).
-- The repo bind means **code changes only need `git pull`** — no image rebuild.
+- **What stays from the image:** compiled `vendor/openfold` (CUDA kernels),
+  the 45K dataset, all Python packages, the pretrained model caches.
+- **What comes from your repo:** `src/`, `configs/`, `scripts/`, CLI scripts.
 - Storage base resolution: `DPLM_BASE` (default `$PROJECT`, falls back to
-  `$HOME` if unset). Override with `export DPLM_BASE=...` if needed.
+  `$HOME`). Override with `export DPLM_BASE=...` if needed.
 
 ---
 
@@ -190,10 +198,12 @@ apptainer exec --nv \
 
 | Symptom | Fix |
 |---|---|
+| `ModuleNotFoundError: attn_core_inplace_cuda` | You bound the whole repo over `/workspace/dplm` — use `common.sh`'s per-directory binds (or re-run via the sbatch scripts) |
 | `ERROR: Apptainer image not found` | `export DPLM_SIF=$PROJECT/dplm_cond.sif` (or do Step 1) |
-| Dataset rows = 0 / file not found | Do Step 3 (dataset copy-out) |
+| Dataset rows = 0 / file not found | The sbatch runs with `--pwd /workspace/dplm` inside the image — the baked-in dataset should be found; if not, check `apptainer exec ... ls /workspace/dplm/data-bin/cfpgen_dplm2_joined/` |
 | NCCL errors in DDP | Stale port; `export MASTER_PORT=29501` and resubmit |
 | wandb 401/403 | `WANDB_API_KEY` not exported in the submission shell |
 | OOM during training | `sbatch ... -- datamodule.max_tokens=3000` |
 | Code changes not picked up | `git pull` in `$PROJECT/dplm-repo` |
+| Read-only filesystem errors for logs | Expected inside the image; logs/wandb/gen go to the `$PROJECT` binds — submit via the sbatch scripts, which set them up |
 | `$PROJECT` quota exceeded | SIF (57G) + HF cache are the big items; `du -sh $PROJECT/*` |

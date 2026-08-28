@@ -64,7 +64,9 @@ run_in_container python train.py \
   name=cond_dplm2_meluxina_smoke
 
 echo "=== [4/4] Conditional generation from the smoke ckpt ==="
-SMOKE_CKPT=$(ls -t logs/cond_dplm2_meluxina_smoke/checkpoints/step_*.ckpt 2>/dev/null | head -1)
+# Checkpoints are written by the container into the $DPLM_LOGS bind
+# (= /workspace/dplm/logs inside). Look them up on the HOST side.
+SMOKE_CKPT=$(ls -t "${DPLM_LOGS}/cond_dplm2_meluxina_smoke/checkpoints/"step_*.ckpt 2>/dev/null | head -1)
 if [[ -z "${SMOKE_CKPT}" ]]; then
   echo "WARNING: no step_*.ckpt found; skipping generation test."
 else
