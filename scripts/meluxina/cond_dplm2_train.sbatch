@@ -9,9 +9,10 @@
 #SBATCH --output=logs/slurm/cond_dplm2_%j.out
 #SBATCH --error=logs/slurm/cond_dplm2_%j.err
 #
-# Conditional DPLM-2 training on Meluxina (A100 40GB, 4 GPUs/node).
+# Conditional DPLM-2 FULL training on Meluxina (A100 40GB, 4 GPUs/node),
+# running inside the Apptainer container.
 #
-# Submit:
+# Submit (AFTER the smoke test passes):
 #   sbatch scripts/meluxina/cond_dplm2_train.sbatch
 #
 # Multi-node (e.g. 2 nodes × 4 GPUs):
@@ -20,19 +21,14 @@
 # Override hyperparameters by appending Hydra flags after `--`:
 #   sbatch scripts/meluxina/cond_dplm2_train.sbatch -- train.lr=1e-4 trainer.max_steps=50000
 #
-# Required env vars (set in your submission environment or ~/.bashrc):
-#   WANDB_API_KEY   — for wandb logging (set `WANDB_MODE=offline` to disable)
-# Optional env vars:
-#   DOCKER_IMAGE    — the dplm docker image (default: dplm:cu121-torch220)
-#   NUM_NODES       — overrides --nodes if set
-#   MAX_STEPS       — overrides trainer.max_steps
-#   LR              — overrides train.lr
+# Env vars: see scripts/meluxina/common.sh (DPLM_SIF, WANDB_API_KEY, …).
 
 set -Eeuo pipefail
 
 ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "${ROOT_DIR}"
 mkdir -p logs/slurm
+source "${ROOT_DIR}/scripts/meluxina/common.sh"
 
 # --- Resolve node count (SLURM --nodes takes precedence) ---
 NUM_NODES="${SLURM_NNODES:-${NUM_NODES:-1}}"
@@ -42,23 +38,9 @@ echo "[meluxina] SLURM_NODELIST=${SLURM_NODELIST:-unknown}"
 echo "[meluxina] nodes=${NUM_NODES}  gpus/node=${GPUS_PER_NODE}"
 echo "[meluxina] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
 
-# --- Environment for stable distributed training ---
-export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
-export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
-export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
-export MPLCONFIGDIR="${MPLCONFIGDIR:-${TMPDIR:-/tmp}/dplm-matplotlib-cache}"
-export TRITON_CACHE_DIR="${TRITON_CACHE_DIR:-${TMPDIR:-/tmp}/dplm-triton-cache}"
-export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${TMPDIR:-/tmp}/dplm-xdg-cache}"
-export HF_HOME="${HF_HOME:-${SCRATCH:-${HOME}}/.cache/huggingface}"
-export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${HF_HOME}/datasets}"
-export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-${HF_HOME}/transformers}"
-# wandb
-export WANDB_PROJECT="${WANDB_PROJECT:-CondDPLM2_650m}"
 if [[ -z "${WANDB_API_KEY:-}" && "${WANDB_MODE:-online}" == "online" ]]; then
   echo "[meluxina] WARNING: WANDB_API_KEY not set; set WANDB_MODE=offline to log locally only."
 fi
-
-mkdir -p "${MPLCONFIGDIR}" "${TRITON_CACHE_DIR}" "${XDG_CACHE_HOME}" "${HF_DATASETS_CACHE}" "${TRANSFORMERS_CACHE}"
 
 # --- Build the Hydra command ---
 HYDRA_ARGS=(
@@ -82,5 +64,5 @@ if [[ $# -gt 0 ]]; then
   HYDRA_OVERRIDES+=("$@")
 fi
 
-echo "[meluxina] python train.py ${HYDRA_ARGS[*]} ${HYDRA_OVERRIDES[*]:-}"
-exec python train.py "${HYDRA_ARGS[@]}" "${HYDRA_OVERRIDES[@]}"
+echo "[meluxina] (in container) python train.py ${HYDRA_ARGS[*]} ${HYDRA_OVERRIDES[*]:-}"
+run_in_container python train.py "${HYDRA_ARGS[@]}" ${HYDRA_OVERRIDES[@]+"${HYDRA_OVERRIDES[@]}"}
