@@ -15,26 +15,40 @@
 #      GPU access (--nv) and all relevant env vars forwarded.
 
 # --- Ensure apptainer is available -----------------------------------------
-# SLURM batch shells are minimal: they do NOT source ~/.bashrc, so a
-# `module load Apptainer` done on the login node does not carry over.
+# SLURM batch shells are minimal: they do NOT source ~/.bashrc or the full
+# /etc/profile, so neither the module function nor module-loaded binaries
+# carry over from the login shell. Initialize the module system explicitly.
 if ! command -v apptainer >/dev/null 2>&1; then
+  # Source the environment-modules init for bash if the module function is absent
+  if ! command -v module >/dev/null 2>&1; then
+    for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules; do
+      [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
+    done
+  fi
   if command -v module >/dev/null 2>&1; then
     echo "[meluxina] loading Apptainer module (not inherited from login shell)"
-    module load Apptainer 2>/dev/null || source /etc/profile.d/modules.sh 2>/dev/null && module load Apptainer
+    module load Apptainer 2>/dev/null || true
   fi
 fi
 if ! command -v apptainer >/dev/null 2>&1; then
-  # Last resort: common install prefixes
-  for p in /opt/paraview/Apptainer /usr/local/apptainer/bin /opt/apptainer/bin; do
-    [[ -x "$p/apptainer" || -x "$p/bin/apptainer" ]] && export PATH="$p:$p/bin:${PATH}" && break
+  # Try common install prefixes on Meluxina
+  for p in /opt/paraview/Apptainer/bin /usr/local/apptainer/bin /opt/apptainer/bin \
+           /opt/cesga/apptainer/bin /mnt/tier2/opt/apptainer/bin; do
+    [[ -x "$p/apptainer" ]] && export PATH="${p}:${PATH}" && break
   done
 fi
 if ! command -v apptainer >/dev/null 2>&1; then
-  echo "[meluxina] ERROR: apptainer not found. On the login node run:"
-  echo "  module load Apptainer"
-  echo "and either (a) add that to ~/.bashrc, or (b) find the binary:"
-  echo "  module show Apptainer   # note the path it prepends"
-  echo "and export APPTAINER_BIN=<that dir> before submitting."
+  # APPTAINER_BIN override as last resort
+  [[ -n "${APPTAINER_BIN:-}" && -x "${APPTAINER_BIN}/apptainer" ]] && \
+    export PATH="${APPTAINER_BIN}:${PATH}"
+fi
+if ! command -v apptainer >/dev/null 2>&1; then
+  echo "[meluxina] ERROR: apptainer not found after module load + prefix search."
+  echo "[meluxina] On the LOGIN node, find the real path:"
+  echo "  module load Apptainer; which apptainer"
+  echo "then either:"
+  echo "  (a) export APPTAINER_BIN=<dir-containing-apptainer> before sbatch, or"
+  echo "  (b) symlink it: ln -s <path>/apptainer $HOME/bin/apptainer  (ensure ~/bin is on PATH)"
   exit 1
 fi
 
