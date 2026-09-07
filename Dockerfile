@@ -160,6 +160,12 @@ RUN python -m pip install --no-build-isolation -e .
 
 RUN python -m pip install --no-build-isolation -e vendor/openfold
 
+# wandb installed separately from the heavy pip-freeze layer so that adding
+# or bumping it doesn't invalidate the cached runtime-base / model-cache
+# stages (which take 20+ min to rebuild). This layer is ~30 MB and rebuilds
+# in seconds on code changes.
+RUN python -m pip install --no-cache-dir wandb==0.26.1
+
 COPY --from=model-cache /opt/huggingface /opt/huggingface
 COPY --from=model-cache /opt/torch /opt/torch
 
