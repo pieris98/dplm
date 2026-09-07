@@ -44,8 +44,12 @@ if ! command -v apptainer >/dev/null 2>&1; then
   fi
 fi
 if ! command -v apptainer >/dev/null 2>&1; then
-  # Try common install prefixes (incl. system paths) — cheap and hang-free.
-  for p in /usr/bin /usr/local/bin /opt/paraview/Apptainer/bin /usr/local/apptainer/bin \
+  # Try common install prefixes — cheap and hang-free. The Meluxina
+  # EasyBuild path is listed FIRST: /apps is shared storage, so this exact
+  # prefix works on every compute node and removes any dependency on the
+  # Lmod module system inside the batch shell.
+  for p in /apps/USE/easybuild/release/2025.1/software/Apptainer/1.4.2-GCCcore-14.2.0/bin \
+           /usr/bin /usr/local/bin /opt/paraview/Apptainer/bin /usr/local/apptainer/bin \
            /opt/apptainer/bin /opt/cesga/apptainer/bin /mnt/tier2/opt/apptainer/bin; do
     [[ -x "$p/apptainer" ]] && export PATH="${p}:${PATH}" && break
   done
