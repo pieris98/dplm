@@ -17,30 +17,34 @@
 # --- Ensure apptainer is available -----------------------------------------
 # SLURM batch shells are minimal: they do NOT source ~/.bashrc or the full
 # /etc/profile, so neither the module function nor module-loaded binaries
-# carry over from the login shell. Initialize the module system explicitly.
+# carry over from the login shell. Initialize the module system explicitly,
+# but never let the init hang the job: guard with a timeout.
 if ! command -v apptainer >/dev/null 2>&1; then
-  # Source the environment-modules init for bash if the module function is absent
-  if ! command -v module >/dev/null 2>&1; then
-    for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules; do
-      [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
-    done
-  fi
-  if command -v module >/dev/null 2>&1; then
-    echo "[meluxina] loading Apptainer module (not inherited from login shell)"
-    module load Apptainer 2>/dev/null || true
+  # APPTAINER_BIN override wins outright
+  if [[ -n "${APPTAINER_BIN:-}" && -x "${APPTAINER_BIN}/apptainer" ]]; then
+    export PATH="${APPTAINER_BIN}:${PATH}"
+  else
+    # Source the environment-modules init for bash if the module function is absent
+    if ! command -v module >/dev/null 2>&1; then
+      for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules; do
+        if [[ -f "$init" ]]; then
+          timeout 15 bash -c "source '$init' >/dev/null 2>&1" && source "$init" >/dev/null 2>&1
+          break
+        fi
+      done
+    fi
+    if command -v module >/dev/null 2>&1; then
+      echo "[meluxina] loading Apptainer module (not inherited from login shell)"
+      module load Apptainer 2>/dev/null || true
+    fi
   fi
 fi
 if ! command -v apptainer >/dev/null 2>&1; then
   # Try common install prefixes on Meluxina
   for p in /opt/paraview/Apptainer/bin /usr/local/apptainer/bin /opt/apptainer/bin \
-           /opt/cesga/apptainer/bin /mnt/tier2/opt/apptainer/bin; do
+           /opt/cesga/apptainer/bin /mnt/tier2/opt/apptainer/bin /usr/bin /usr/local/bin; do
     [[ -x "$p/apptainer" ]] && export PATH="${p}:${PATH}" && break
   done
-fi
-if ! command -v apptainer >/dev/null 2>&1; then
-  # APPTAINER_BIN override as last resort
-  [[ -n "${APPTAINER_BIN:-}" && -x "${APPTAINER_BIN}/apptainer" ]] && \
-    export PATH="${APPTAINER_BIN}:${PATH}"
 fi
 if ! command -v apptainer >/dev/null 2>&1; then
   echo "[meluxina] ERROR: apptainer not found after module load + prefix search."
@@ -82,8 +86,7 @@ DPLM_LOGS="${DPLM_LOGS:-${DPLM_BASE}/dplm-logs}"
 DPLM_WANDB="${DPLM_WANDB:-${DPLM_BASE}/dplm-wandb}"
 DPLM_GEN="${DPLM_GEN:-${DPLM_BASE}/dplm-gen}"
 RUN_SCRATCH="${RUN_SCRATCH:-${DPLM_BASE}/dplm_run_${SLURM_JOB_ID:-manual}}"
-mkdir -p "${DPLM_LOGS}" "${DPLM_WANDB}" "${DPLM_GEN}" \
-         "${RUN_SCRATCH}/hf" "${RUN_SCRATCH}/tmp"
+mkdir -p "${DPLM_LOGS}" "${DPLM_WANDB}" "${DPLM_GEN}" "${RUN_SCRATCH}/tmp"
 
 # --- Environment forwarded into the container ------------------------------
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
@@ -107,7 +110,6 @@ run_in_container() {
     --bind "${DPLM_LOGS}:/workspace/dplm/logs" \
     --bind "${DPLM_WANDB}:/workspace/dplm/wandb" \
     --bind "${DPLM_GEN}:/workspace/dplm/generation-results" \
-    --bind "${RUN_SCRATCH}/hf:/opt/huggingface" \
     --bind "${RUN_SCRATCH}/tmp:/tmp" \
     --env OMP_NUM_THREADS="${OMP_NUM_THREADS}" \
     --env TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM}" \
@@ -116,10 +118,15 @@ run_in_container() {
     --env WANDB_PROJECT="${WANDB_PROJECT}" \
     --env WANDB_MODE="${WANDB_MODE:-online}" \
     --env WANDB_DIR="/workspace/dplm/wandb" \
-    --env HF_HOME=/opt/huggingface \
     --env MASTER_ADDR="${MASTER_ADDR}" \
     --env MASTER_PORT="${MASTER_PORT}" \
     --pwd /workspace/dplm \
     "${DPLM_SIF}" \
     "$@"
 }
+# NOTE: deliberately NO bind over /opt/huggingface. The image bakes the
+# pretrained HF models (dplm2_650m, struct_tokenizer, ...) into that path.
+# Binding an empty scratch dir over it would shadow the cache, forcing
+# from_pretrained to attempt downloads — which hang/fail on compute nodes
+# without internet egress. The image also sets sensible HF env defaults
+# (HF_HOME=/opt/huggingface, etag timeouts) so cache hits work read-only.

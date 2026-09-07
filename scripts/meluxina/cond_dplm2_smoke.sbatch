@@ -38,7 +38,10 @@ set -Eeuo pipefail
 # path resolution breaks. Use SLURM_SUBMIT_DIR (the submission cwd) instead.
 ROOT_DIR="${ROOT_DIR:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 cd "${ROOT_DIR}"
+echo "[smoke] ROOT_DIR=${ROOT_DIR} (job ${SLURM_JOB_ID:-?} on $(hostname))"
+echo "[smoke] sourcing common.sh ..."
 source "${ROOT_DIR}/scripts/meluxina/common.sh"
+echo "[smoke] common.sh OK — SIF at ${DPLM_SIF}"
 
 echo "=== [1/4] Container + GPU visibility ==="
 run_in_container nvidia-smi --query-gpu=index,name,memory.total --format=csv
