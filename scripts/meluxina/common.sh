@@ -17,37 +17,41 @@
 # --- Ensure apptainer is available -----------------------------------------
 # SLURM batch shells are minimal: they do NOT source ~/.bashrc or the full
 # /etc/profile, so neither the module function nor module-loaded binaries
-# carry over from the login shell. Initialize the module system explicitly,
-# but never let the init hang the job: guard with a timeout.
+# carry over from the login shell.
+#
+# HANG-SAFETY: module init scripts can block in batch shells. We therefore
+# NEVER source anything in this live shell. Instead, run the whole
+# module-init + module-load in a THROWAWAY subshell under `timeout`, have
+# it print its resolved PATH, and import only that PATH string here.
 if ! command -v apptainer >/dev/null 2>&1; then
-  # APPTAINER_BIN override wins outright
   if [[ -n "${APPTAINER_BIN:-}" && -x "${APPTAINER_BIN}/apptainer" ]]; then
     export PATH="${APPTAINER_BIN}:${PATH}"
   else
-    # Source the environment-modules init for bash if the module function is absent
-    if ! command -v module >/dev/null 2>&1; then
+    _resolved_path="$(timeout 20 bash -c '
       for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules; do
-        if [[ -f "$init" ]]; then
-          timeout 15 bash -c "source '$init' >/dev/null 2>&1" && source "$init" >/dev/null 2>&1
-          break
-        fi
+        [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
       done
+      if command -v module >/dev/null 2>&1; then
+        module load Apptainer >/dev/null 2>&1 || true
+      fi
+      command -v apptainer >/dev/null 2>&1 && printf "%s" "$PATH"
+    ' 2>/dev/null || true)"
+    if [[ -n "${_resolved_path}" ]]; then
+      export PATH="${_resolved_path}"
+      echo "[meluxina] apptainer located via guarded module discovery"
     fi
-    if command -v module >/dev/null 2>&1; then
-      echo "[meluxina] loading Apptainer module (not inherited from login shell)"
-      module load Apptainer 2>/dev/null || true
-    fi
+    unset _resolved_path
   fi
 fi
 if ! command -v apptainer >/dev/null 2>&1; then
-  # Try common install prefixes on Meluxina
-  for p in /opt/paraview/Apptainer/bin /usr/local/apptainer/bin /opt/apptainer/bin \
-           /opt/cesga/apptainer/bin /mnt/tier2/opt/apptainer/bin /usr/bin /usr/local/bin; do
+  # Try common install prefixes (incl. system paths) — cheap and hang-free.
+  for p in /usr/bin /usr/local/bin /opt/paraview/Apptainer/bin /usr/local/apptainer/bin \
+           /opt/apptainer/bin /opt/cesga/apptainer/bin /mnt/tier2/opt/apptainer/bin; do
     [[ -x "$p/apptainer" ]] && export PATH="${p}:${PATH}" && break
   done
 fi
 if ! command -v apptainer >/dev/null 2>&1; then
-  echo "[meluxina] ERROR: apptainer not found after module load + prefix search."
+  echo "[meluxina] ERROR: apptainer not found after guarded module discovery + prefix search."
   echo "[meluxina] On the LOGIN node, find the real path:"
   echo "  module load Apptainer; which apptainer"
   echo "then either:"
@@ -55,6 +59,7 @@ if ! command -v apptainer >/dev/null 2>&1; then
   echo "  (b) symlink it: ln -s <path>/apptainer $HOME/bin/apptainer  (ensure ~/bin is on PATH)"
   exit 1
 fi
+echo "[meluxina] apptainer: $(command -v apptainer)"
 
 # --- Storage base ----------------------------------------------------------
 # Meluxina project layout: no $SCRATCH. Use $PROJECT for large artifacts
