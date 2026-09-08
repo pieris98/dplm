@@ -111,6 +111,7 @@ export MASTER_PORT="${MASTER_PORT:-29500}"
 run_in_container() {
   apptainer exec \
     --nv \
+    --cleanenv \
     --bind "${REPO_DIR}/src:/workspace/dplm/src" \
     --bind "${REPO_DIR}/configs:/workspace/dplm/configs" \
     --bind "${REPO_DIR}/scripts:/workspace/dplm/scripts" \
@@ -120,6 +121,7 @@ run_in_container() {
     --bind "${DPLM_WANDB}:/workspace/dplm/wandb" \
     --bind "${DPLM_GEN}:/workspace/dplm/generation-results" \
     --bind "${RUN_SCRATCH}/tmp:/tmp" \
+    --env PATH="/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     --env OMP_NUM_THREADS="${OMP_NUM_THREADS}" \
     --env TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM}" \
     --env PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF}" \
@@ -133,6 +135,13 @@ run_in_container() {
     "${DPLM_SIF}" \
     "$@"
 }
+# NOTE: --cleanenv + explicit PATH are required. Unlike Docker, Apptainer
+# propagates the HOST environment into the container, overriding the image's
+# ENV PATH — and the host PATH has no `python` (the image's interpreter is
+# /opt/venv/bin/python), so every python invocation dies with
+# `"python": executable file not found in $PATH`. --cleanenv restores the
+# image's own ENV (CUDA_HOME, TORCH_HOME, HF_HOME, ...) as the base, and the
+# --env forwards above re-apply what the job needs on top.
 # NOTE: deliberately NO bind over /opt/huggingface. The image bakes the
 # pretrained HF models (dplm2_650m, struct_tokenizer, ...) into that path.
 # Binding an empty scratch dir over it would shadow the cache, forcing
