@@ -50,12 +50,22 @@ fi
 
 case "${MODE}" in
   alloc)
-    # salloc executes this on the compute node; the trailing bash -c keeps
-    # the allocation alive only while the container shell runs.
-    CMD="source '${COMMON}' && run_in_container_shell"
+    # Land in a HOST shell inside the allocation (common.sh pre-sourced), so
+    # exiting the container returns to the host shell; a second exit releases
+    # the allocation.
+    BASHRC="${TMPDIR:-/tmp}/dplm_alloc_bashrc.$$"
+    cat > "${BASHRC}" <<EOS
+source '${COMMON}'
+echo "[interactive] HOST shell on \$(hostname -s) — allocation alive."
+echo "  container shell : run_in_container_shell    (exit returns here)"
+echo "  one-off command : run_in_container <cmd...>"
+echo "  full checks     : run_in_container \"\${DPLM_PY}\" /workspace/dplm/scripts/meluxina/checks.py"
+echo "  host diagnostics: nvidia-smi -L; ls -l /dev/nvidia*; ls -l \$(command -v apptainer)"
+echo "  exit            : release the allocation"
+EOS
     exec salloc --account="${ACCOUNT}" -p gpu --qos="${QOS}" \
       --gres="gpu:${GPUS}" -N1 --cpus-per-task=16 -t "${TIME}" \
-      bash -c "${CMD}"
+      bash --noprofile --rcfile "${BASHRC}" -i
     ;;
   shell)
     if on_login_node; then
