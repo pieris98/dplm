@@ -104,7 +104,19 @@ fi
 echo "[meluxina] SIF: ${DPLM_SIF}"
 
 # --- Repo checkout (source of fresh code) ----------------------------------
+# ROOT_DIR is normally set by the sbatch caller. When sourced directly
+# (interactive.sh salloc path), derive it from this file's location:
+# common.sh lives at <repo>/scripts/meluxina/common.sh.
+if [[ -z "${ROOT_DIR:-}" ]]; then
+  _common_src="${BASH_SOURCE[0]:-}"
+  if [[ -n "${_common_src}" && -f "${_common_src}" ]]; then
+    ROOT_DIR="$(cd "$(dirname "${_common_src}")/../.." && pwd)"
+  else
+    ROOT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
+  fi
+fi
 REPO_DIR="${ROOT_DIR}"
+echo "[meluxina] repo: ${REPO_DIR}"
 
 # --- Persistent writable dirs (bind-mounted into the container) ------------
 DPLM_LOGS="${DPLM_LOGS:-${DPLM_BASE}/dplm-logs}"
