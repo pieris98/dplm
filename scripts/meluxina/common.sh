@@ -172,7 +172,27 @@ CONTAINER_ARGS=(
 )
 
 run_in_container() {
-  apptainer exec "${CONTAINER_ARGS[@]}" "${DPLM_SIF}" "$@"
+  # Retry wrapper: unprivileged SIF mounts (squashfuse_ll) intermittently
+  # come up in a bad state ("stat ... permission denied" / mount-hook FATAL
+  # at container creation). The flake strikes within the first seconds, so
+  # retry ONLY fast failures — never a command that ran for a while (would
+  # risk restarting a long training run).
+  local attempt rc=1 start
+  for attempt in 1 2 3; do
+    start=$SECONDS
+    apptainer exec "${CONTAINER_ARGS[@]}" "${DPLM_SIF}" "$@"
+    rc=$?
+    if [[ $rc -eq 0 ]]; then
+      return 0
+    fi
+    if (( SECONDS - start > 120 )); then
+      echo "[meluxina] command ran $((SECONDS - start))s before failing (rc=$rc) — not retrying."
+      return "$rc"
+    fi
+    echo "[meluxina] attempt $attempt failed fast (rc=$rc — likely SIF-mount flake); retrying in 5s ..."
+    sleep 5
+  done
+  return "$rc"
 }
 
 # Interactive bash inside the container (same binds/env as run_in_container).
