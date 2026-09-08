@@ -115,32 +115,43 @@ export MASTER_ADDR="${MASTER_ADDR:-$(hostname)}"
 export MASTER_PORT="${MASTER_PORT:-29500}"
 
 # --- The launcher -----------------------------------------------------------
+# One argument array shared by exec AND interactive shell, so the manual /
+# interactive path is guaranteed identical to the sbatch path.
+CONTAINER_ARGS=(
+  --nv
+  --cleanenv
+  --bind "${REPO_DIR}/src:/workspace/dplm/src"
+  --bind "${REPO_DIR}/configs:/workspace/dplm/configs"
+  --bind "${REPO_DIR}/scripts:/workspace/dplm/scripts"
+  --bind "${REPO_DIR}/train.py:/workspace/dplm/train.py"
+  --bind "${REPO_DIR}/generate_conditional_dplm2.py:/workspace/dplm/generate_conditional_dplm2.py"
+  --bind "${DPLM_LOGS}:/workspace/dplm/logs"
+  --bind "${DPLM_WANDB}:/workspace/dplm/wandb"
+  --bind "${DPLM_GEN}:/workspace/dplm/generation-results"
+  --bind "${RUN_SCRATCH}/tmp:/tmp"
+  --env PATH="/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  --env OMP_NUM_THREADS="${OMP_NUM_THREADS}"
+  --env TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM}"
+  --env PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF}"
+  --env WANDB_API_KEY="${WANDB_API_KEY:-}"
+  --env WANDB_PROJECT="${WANDB_PROJECT}"
+  --env WANDB_MODE="${WANDB_MODE:-online}"
+  --env WANDB_DIR="/workspace/dplm/wandb"
+  --env HF_HUB_OFFLINE=1
+  --env MASTER_ADDR="${MASTER_ADDR}"
+  --env MASTER_PORT="${MASTER_PORT}"
+  --pwd /workspace/dplm
+)
+
 run_in_container() {
-  apptainer exec \
-    --nv \
-    --cleanenv \
-    --bind "${REPO_DIR}/src:/workspace/dplm/src" \
-    --bind "${REPO_DIR}/configs:/workspace/dplm/configs" \
-    --bind "${REPO_DIR}/scripts:/workspace/dplm/scripts" \
-    --bind "${REPO_DIR}/train.py:/workspace/dplm/train.py" \
-    --bind "${REPO_DIR}/generate_conditional_dplm2.py:/workspace/dplm/generate_conditional_dplm2.py" \
-    --bind "${DPLM_LOGS}:/workspace/dplm/logs" \
-    --bind "${DPLM_WANDB}:/workspace/dplm/wandb" \
-    --bind "${DPLM_GEN}:/workspace/dplm/generation-results" \
-    --bind "${RUN_SCRATCH}/tmp:/tmp" \
-    --env PATH="/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-    --env OMP_NUM_THREADS="${OMP_NUM_THREADS}" \
-    --env TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM}" \
-    --env PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF}" \
-    --env WANDB_API_KEY="${WANDB_API_KEY:-}" \
-    --env WANDB_PROJECT="${WANDB_PROJECT}" \
-    --env WANDB_MODE="${WANDB_MODE:-online}" \
-    --env WANDB_DIR="/workspace/dplm/wandb" \
-    --env MASTER_ADDR="${MASTER_ADDR}" \
-    --env MASTER_PORT="${MASTER_PORT}" \
-    --pwd /workspace/dplm \
-    "${DPLM_SIF}" \
-    "$@"
+  apptainer exec "${CONTAINER_ARGS[@]}" "${DPLM_SIF}" "$@"
+}
+
+# Interactive bash inside the container (same binds/env as run_in_container).
+run_in_container_shell() {
+  local -a sh=(bash)
+  [[ -t 0 ]] && sh=(bash -i)
+  apptainer exec "${CONTAINER_ARGS[@]}" "${DPLM_SIF}" "${sh[@]}"
 }
 # NOTE: --cleanenv + explicit PATH are required. Unlike Docker, Apptainer
 # propagates the HOST environment into the container, overriding the image's
