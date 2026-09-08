@@ -69,4 +69,4 @@ if [[ $# -gt 0 ]]; then
 fi
 
 echo "[meluxina] (in container) python train.py ${HYDRA_ARGS[*]} ${HYDRA_OVERRIDES[*]:-}"
-run_in_container python train.py "${HYDRA_ARGS[@]}" ${HYDRA_OVERRIDES[@]+"${HYDRA_OVERRIDES[@]}"}
+run_in_container "${DPLM_PY}" train.py "${HYDRA_ARGS[@]}" ${HYDRA_OVERRIDES[@]+"${HYDRA_OVERRIDES[@]}"}

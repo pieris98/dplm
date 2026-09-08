@@ -47,7 +47,7 @@ echo "=== [1/4] Container + GPU visibility ==="
 run_in_container nvidia-smi --query-gpu=index,name,memory.total --format=csv
 
 echo "=== [2/4] Dataset visibility ==="
-run_in_container python -c "
+run_in_container "${DPLM_PY}" -c "
 import pyarrow.parquet as pq
 t = pq.read_table('/workspace/dplm/data-bin/cfpgen_dplm2_joined/joined_train_safe.parquet', columns=['uniprot_id'])
 print(f'dataset rows: {t.num_rows}')
@@ -56,7 +56,7 @@ print('dataset OK')
 "
 
 echo "=== [3/4] 40-step DDP training (4×A100 bf16, wandb) ==="
-run_in_container python train.py \
+run_in_container "${DPLM_PY}" train.py \
   experiment=dplm2/cond_dplm2_650m_cfpgen_meluxina \
   trainer=meluxina_ddp_bf16 \
   trainer.num_nodes=1 \
@@ -78,13 +78,13 @@ if [[ -z "${SMOKE_CKPT}" ]]; then
   echo "WARNING: no step_*.ckpt found; skipping generation test."
 else
   echo "Using ckpt: ${SMOKE_CKPT}"
-  run_in_container python generate_conditional_dplm2.py \
+  run_in_container "${DPLM_PY}" generate_conditional_dplm2.py \
     --ckpt "${SMOKE_CKPT}" \
     --labels go:5 \
     --task sequence_generation \
     --num-seqs 4 --seq-len 64 --batch-size 4 \
     --saveto generation-results/meluxina_smoke
-  run_in_container python -c "
+  run_in_container "${DPLM_PY}" -c "
 seqs = open('generation-results/meluxina_smoke/sequence_generation/len_64/cond_go-5+ipr-0/aatype.fasta').read()
 assert seqs.count('>') >= 4, 'generation produced too few sequences'
 print('generation OK')

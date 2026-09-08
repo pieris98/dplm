@@ -103,6 +103,13 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export WANDB_PROJECT="${WANDB_PROJECT:-CondDPLM2_650m}"
 
+# Absolute interpreter path inside the container. PATH-based resolution of
+# `python` proved unreliable across Apptainer env semantics (host-env
+# propagation vs --cleanenv vs OCI-pulled image env); an absolute path
+# bypasses PATH entirely.
+DPLM_PY="/opt/venv/bin/python"
+export DPLM_PY
+
 # Distributed env (Lightning reads these when multi-node)
 export MASTER_ADDR="${MASTER_ADDR:-$(hostname)}"
 export MASTER_PORT="${MASTER_PORT:-29500}"
