@@ -22,7 +22,9 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 ACCOUNT="${ACCOUNT:-p201418}"
 QOS="${QOS:-test}"
 GPUS="${GPUS:-4}"
-TIME="${TIME:-01:00:00}"
+# NOTE: Meluxina's 'test' QOS caps walltime below 1h (QOSMaxWallDurationPerJobLimit);
+# 30 min matches what the smoke sbatch uses successfully.
+TIME="${TIME:-00:30:00}"
 
 COMMON="${ROOT_DIR}/scripts/meluxina/common.sh"
 CHECKS_IN_CONTAINER="/workspace/dplm/scripts/meluxina/checks.py"
