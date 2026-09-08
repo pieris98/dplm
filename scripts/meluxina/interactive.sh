@@ -18,7 +18,6 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-MODE="${1:-shell}"
 
 ACCOUNT="${ACCOUNT:-p201418}"
 QOS="${QOS:-test}"
@@ -32,6 +31,21 @@ on_login_node() {
   [[ "$(hostname -s)" == login* || -z "${SLURM_JOB_ID:-}" ]]
 }
 
+# Default mode: 'check' on a login node (allocates GPUs itself), 'shell'
+# on a compute node (already inside an allocation).
+if [[ $# -eq 0 ]]; then
+  if on_login_node; then
+    MODE="check"
+    echo "[interactive] no subcommand given; on login node → defaulting to 'check'"
+    echo "[interactive] (use 'alloc' for an interactive container shell with GPUs,"
+    echo "[interactive]  or 'shell' when already inside an allocation)"
+  else
+    MODE="shell"
+  fi
+else
+  MODE="$1"
+fi
+
 case "${MODE}" in
   alloc)
     # salloc executes this on the compute node; the trailing bash -c keeps
@@ -42,6 +56,14 @@ case "${MODE}" in
       bash -c "${CMD}"
     ;;
   shell)
+    if on_login_node; then
+      echo "[interactive] REFUSING to run a container shell on a login node:"
+      echo "  no GPUs here, and login nodes often lack squashfuse so apptainer"
+      echo "  would extract the entire ~57 GB SIF into a temp sandbox."
+      echo "Use: $0 alloc   (interactive shell with GPUs)"
+      echo "  or: $0 check   (automated precondition checks)"
+      exit 1
+    fi
     source "${COMMON}"
     run_in_container_shell
     ;;

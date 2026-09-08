@@ -65,6 +65,22 @@ if ! command -v apptainer >/dev/null 2>&1; then
 fi
 echo "[meluxina] apptainer: $(command -v apptainer)"
 
+# squashfuse: unprivileged Apptainer FUSE-mounts the SIF; if missing it
+# FALLS BACK TO EXTRACTING THE WHOLE ~57 GB IMAGE into a temp sandbox.
+# On EasyBuild stacks squashfuse ships as a separate module path that the
+# bare batch shell doesn't have — probe for it so we never sandbox-convert.
+if ! command -v squashfuse >/dev/null 2>&1; then
+  for d in /apps/USE/easybuild/release/*/software/squashfuse/*/bin \
+           /usr/bin /usr/local/bin; do
+    [[ -x "$d/squashfuse" ]] && export PATH="${d}:${PATH}" && break
+  done
+fi
+if ! command -v squashfuse >/dev/null 2>&1; then
+  echo "[meluxina] WARNING: squashfuse not found — apptainer may extract the"
+  echo "  full SIF to a temp sandbox (slow, fills /tmp). If 'module load"
+  echo "  Apptainer' works in this shell, prefer running through it."
+fi
+
 # --- Storage base ----------------------------------------------------------
 # Meluxina project layout: no $SCRATCH. Use $PROJECT for large artifacts
 # (the ~57 GB SIF, HF cache), falling back to $HOME if unset.
