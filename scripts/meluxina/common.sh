@@ -153,6 +153,7 @@ export MASTER_PORT="${MASTER_PORT:-29500}"
 CONTAINER_ARGS=(
   --nv
   --cleanenv
+  --bind "${REPO_DIR}/.git:/workspace/dplm/.git"
   --bind "${REPO_DIR}/src:/workspace/dplm/src"
   --bind "${REPO_DIR}/configs:/workspace/dplm/configs"
   --bind "${REPO_DIR}/scripts:/workspace/dplm/scripts"
