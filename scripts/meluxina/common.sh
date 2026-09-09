@@ -86,22 +86,27 @@ fi
 # (the ~57 GB SIF, HF cache), falling back to $HOME if unset.
 DPLM_BASE="${DPLM_BASE:-${PROJECT:-${SCRATCH:-$HOME}}}"
 
-# --- Locate the SIF -------------------------------------------------------
-# Order: $DPLM_SIF, then $DPLM_BASE/dplm_cond.sif, then repo root.
-DPLM_SIF="${DPLM_SIF:-${DPLM_BASE}/dplm_cond.sif}"
-if [[ ! -f "$DPLM_SIF" ]]; then
-  for cand in "$HOME/dplm_cond.sif" "$(pwd)/dplm_cond.sif"; do
-    [[ -f "$cand" ]] && DPLM_SIF="$cand" && break
+# --- Locate the image (SIF file OR sandbox directory) ----------------------
+# Precedence: $DPLM_SIF (file OR dir), then $DPLM_BASE/dplm_sandbox (preferred
+# over the SIF — plain-dir rootfs avoids the squashfuse mount flake), then
+# $DPLM_BASE/dplm_cond.sif. NOTE: -e, not -f — a sandbox is a directory.
+DPLM_SIF="${DPLM_SIF:-}"
+if [[ -z "$DPLM_SIF" ]]; then
+  for cand in "${DPLM_BASE}/dplm_sandbox" "${DPLM_BASE}/dplm_cond.sif" \
+              "$HOME/dplm_cond.sif" "$(pwd)/dplm_cond.sif"; do
+    [[ -e "$cand" ]] && DPLM_SIF="$cand" && break
   done
 fi
-if [[ ! -f "$DPLM_SIF" ]]; then
-  echo "[meluxina] ERROR: Apptainer image not found."
-  echo "[meluxina] Pull it first (one-time, on a login node):"
-  echo "  module load Apptainer"
+if [[ -z "$DPLM_SIF" || ! -e "$DPLM_SIF" ]]; then
+  echo "[meluxina] ERROR: container image not found (SIF or sandbox dir)."
+  echo "[meluxina] Either pull the SIF:"
   echo "  apptainer pull ${DPLM_BASE}/dplm_cond.sif docker://pieris98/dplm:cu121-torch220-cond"
+  echo "[meluxina] or build the sandbox (preferred — no SIF-mount flake):"
+  echo "  apptainer build --sandbox ${DPLM_BASE}/dplm_sandbox docker://pieris98/dplm:cu121-torch220-cond"
+  echo "[meluxina] or export DPLM_SIF=/absolute/path/to/{dplm_cond.sif,dplm_sandbox}"
   exit 1
 fi
-echo "[meluxina] SIF: ${DPLM_SIF}"
+echo "[meluxina] image: ${DPLM_SIF}"
 
 # --- Repo checkout (source of fresh code) ----------------------------------
 # ROOT_DIR is normally set by the sbatch caller. When sourced directly
