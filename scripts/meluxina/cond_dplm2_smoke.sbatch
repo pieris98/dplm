@@ -64,7 +64,7 @@ run_in_container "${DPLM_PY}" train.py \
   trainer.max_steps=40 \
   trainer.val_check_interval=20 \
   trainer.log_every_n_steps=5 \
-  trainer.limit_val_batches=4 \
+  ++trainer.limit_val_batches=4 \
   datamodule.num_workers=4 \
   callbacks.model_checkpoint.every_n_train_steps=40 \
   logger=wandb \
