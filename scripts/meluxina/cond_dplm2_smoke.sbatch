@@ -72,14 +72,17 @@ run_in_container "${DPLM_PY}" train.py \
 
 echo "=== [4/4] Conditional generation from the smoke ckpt ==="
 # Checkpoints are written by the container into the $DPLM_LOGS bind
-# (= /workspace/dplm/logs inside). Look them up on the HOST side.
-SMOKE_CKPT=$(ls -t "${DPLM_LOGS}/cond_dplm2_meluxina_smoke/checkpoints/"step_*.ckpt 2>/dev/null | head -1)
-if [[ -z "${SMOKE_CKPT}" ]]; then
+# (= /workspace/dplm/logs inside). Find the file host-side, then hand the
+# CONTAINER-side path to the in-container generation script.
+CKPT_NAME=$(basename "$(ls -t "${DPLM_LOGS}/cond_dplm2_meluxina_smoke/checkpoints/"step_*.ckpt 2>/dev/null | head -1)" 2>/dev/null || true)
+if [[ -z "${CKPT_NAME}" ]]; then
   echo "WARNING: no step_*.ckpt found; skipping generation test."
 else
-  echo "Using ckpt: ${SMOKE_CKPT}"
+  CKPT_IN_CONTAINER="/workspace/dplm/logs/cond_dplm2_meluxina_smoke/checkpoints/${CKPT_NAME}"
+  echo "Using ckpt: ${DPLM_LOGS}/cond_dplm2_meluxina_smoke/checkpoints/${CKPT_NAME} (host)"
+  echo "            = ${CKPT_IN_CONTAINER} (container)"
   run_in_container "${DPLM_PY}" generate_conditional_dplm2.py \
-    --ckpt "${SMOKE_CKPT}" \
+    --ckpt "${CKPT_IN_CONTAINER}" \
     --labels go:5 \
     --task sequence_generation \
     --num-seqs 4 --seq-len 64 --batch-size 4 \
