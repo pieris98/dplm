@@ -172,6 +172,7 @@ CONTAINER_ARGS=(
   --env WANDB_MODE="${WANDB_MODE:-online}"
   --env WANDB_DIR="/workspace/dplm/wandb"
   --env HF_HUB_OFFLINE=1
+  --env GIT_DISCOVERY_ACROSS_FILESYSTEM=1
   --env MASTER_ADDR="${MASTER_ADDR}"
   --env MASTER_PORT="${MASTER_PORT}"
   --pwd /workspace/dplm

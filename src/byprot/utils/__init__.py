@@ -360,11 +360,19 @@ def get_git_revision_hash() -> str:
     from pathlib import Path
 
     REPO_DIR = str(Path(__file__).resolve().parents[2])
-    return (
-        subprocess.check_output(["git", "-C", REPO_DIR, "rev-parse", "HEAD"])
-        .decode("ascii")
-        .strip()
-    )
+    try:
+        return (
+            subprocess.check_output(
+                ["git", "-C", REPO_DIR, "rev-parse", "HEAD"],
+                stderr=subprocess.DEVNULL,
+            )
+            .decode("ascii")
+            .strip()
+        )
+    except Exception:
+        # Cosmetic metadata only — must never crash a run (e.g. inside
+        # containers where .git sits across a mount boundary from the code).
+        return "unknown"
 
 
 def seed_everything(seed, verbose=False) -> int:
