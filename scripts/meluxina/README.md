@@ -46,11 +46,12 @@ apptainer pull dplm_cu121-torch220.sif docker://<your-registry>/dplm:cu121-torch
 sbatch scripts/meluxina/cond_dplm2_train.sbatch
 ```
 
-### Multi-node (e.g. 2 nodes × 4 GPUs = 8 GPUs)
+### Multi-node — NOT YET WIRED
 
-```bash
-sbatch --nodes=2 scripts/meluxina/cond_dplm2_train.sbatch
-```
+`--nodes=2` currently leaves node 2 idle: the sbatch launches a single
+`python train.py` on the first allocated node. Multi-node needs an
+`srun --ntasks-per-node=1`-based launch (Lightning's SLURM auto-config),
+which is not implemented here. Ask before scaling out.
 
 ### With custom hyperparameters
 
@@ -104,9 +105,12 @@ tail -f logs/slurm/cond_dplm2_<jobid>.out
 
 ## Resuming from checkpoint
 
+Note the `++` prefix — `resume_from_checkpoint` is not a key in the trainer
+config struct, so plain `trainer.` assignment is rejected by Hydra:
+
 ```bash
 sbatch scripts/meluxina/cond_dplm2_train.sbatch -- \
-  trainer.resume_from_checkpoint=logs/cond_dplm2_650m_cfpgen_meluxina/checkpoints/step_49999.ckpt
+  ++trainer.resume_from_checkpoint=$PROJECT/dplm-logs/cond_dplm2_650m_cfpgen_meluxina/checkpoints/last.ckpt
 ```
 
 ## Notes on the Docker image update

@@ -7,7 +7,10 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=32
-#SBATCH --time=24:00:00
+# 100K steps at max_tokens 4000×4 GPUs may exceed 24h; qos=long allows up to
+# 6 days. Checkpoints land every 2000 steps, so an interrupted run is
+# resumable with: ++trainer.resume_from_checkpoint=<ckpt path>
+#SBATCH --time=3-00:00:00
 #SBATCH --output=logs/slurm/cond_dplm2_%j.out
 #SBATCH --error=logs/slurm/cond_dplm2_%j.err
 #
@@ -17,11 +20,14 @@
 # Submit (AFTER the smoke test passes):
 #   sbatch scripts/meluxina/cond_dplm2_train.sbatch
 #
-# Multi-node (e.g. 2 nodes × 4 GPUs):
-#   sbatch --nodes=2 scripts/meluxina/cond_dplm2_train.sbatch
+# NOTE: SINGLE-NODE ONLY as written. `--nodes=2` would leave node 2 idle —
+# multi-node needs an srun-based launch (srun --ntasks-per-node=1 python
+# train.py ...) which is NOT wired here yet. Ask before scaling out.
 #
 # Override hyperparameters by appending Hydra flags after `--`:
 #   sbatch scripts/meluxina/cond_dplm2_train.sbatch -- train.lr=1e-4 trainer.max_steps=50000
+# Resume from a checkpoint (note the ++ — the key isn't in the config struct):
+#   sbatch scripts/meluxina/cond_dplm2_train.sbatch -- ++trainer.resume_from_checkpoint=$PROJECT/dplm-logs/<run>/checkpoints/last.ckpt
 #
 # Env vars: see scripts/meluxina/common.sh (DPLM_SIF, WANDB_API_KEY, …).
 
