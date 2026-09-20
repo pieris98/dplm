@@ -272,6 +272,43 @@ class ConditionalDPLM2(MultimodalDiffusionProteinLanguageModel):
     # reused unchanged.
 
     _active_layer_adapter_inputs: Optional[List] = None
+    _active_layer_adapter_inputs_uncond: Optional[List] = None
+    _cfg_scale: float = 1.0
+
+    def _forward_net(
+        self,
+        input_ids,
+        layer_adapter_inputs: Optional[List],
+        single_modality=None,
+    ):
+        """One pass through the net with the given per-layer adapter inputs.
+
+        This is the replicated parent forward body (``DPLM2.forward``,
+        dplm2.py:263-268 hardcodes its ``self.net(...)`` kwargs and would
+        drop the adapter kwargs). Split out so classifier-free guidance can
+        run a second, null-conditioned pass and combine logits.
+        """
+        input_mask = input_ids.ne(self.pad_id)
+        type_ids = self.get_modality_type(input_ids)
+        L = input_ids.shape[1]
+        num_heads = self.net.config.num_attention_heads
+        attention_bias = self.net.esm.get_extended_attention_mask(
+            input_mask, input_ids.shape
+        ).repeat(1, num_heads, L, 1)
+        if single_modality is not None:
+            struct_bias, aa_bias = attention_bias.chunk(2, dim=-2)
+            struct_bias[single_modality, :, :, L // 2:] = float("-inf")
+            aa_bias[single_modality, :, :, : L // 2] = float("-inf")
+            attention_bias = torch.concat([struct_bias, aa_bias], dim=-2)
+        input_embeds = self.net.esm.embeddings(input_ids, attention_mask=input_mask)
+        return self.net(
+            input_ids=input_ids,
+            inputs_embeds=input_embeds,
+            attention_mask=attention_bias,
+            type_ids=type_ids,
+            layer_adapters=self.layer_adapters,
+            layer_adapter_inputs=layer_adapter_inputs,
+        )
 
     def forward(
         self,
@@ -288,11 +325,18 @@ class ConditionalDPLM2(MultimodalDiffusionProteinLanguageModel):
         if "layer_adapter_inputs" in kwargs:
             layer_adapter_inputs = kwargs.pop("layer_adapter_inputs")
             kwargs.pop("layer_adapters", None)
+            uncond_inputs = None  # explicit-kwargs path stays single-pass
         else:
             if conditions is not None:
                 layer_adapter_inputs = self._encode_conditions(conditions)
+                uncond_inputs = (
+                    self._encode_conditions(conditions, force_unconditional=True)
+                    if self._cfg_scale != 1.0
+                    else None
+                )
             else:
                 layer_adapter_inputs = self._active_layer_adapter_inputs
+                uncond_inputs = self._active_layer_adapter_inputs_uncond
 
         # We can NOT just call ``super().forward(...)``: the parent
         # ``DPLM2.forward`` (dplm2.py:263-268) hardcodes the kwargs it
@@ -300,27 +344,27 @@ class ConditionalDPLM2(MultimodalDiffusionProteinLanguageModel):
         # ``layer_adapter_inputs``. Replicate the small parent body here and
         # pass the adapter kwargs through explicitly.
         single_modality = kwargs.pop("single_modality", None)
-        input_mask = input_ids.ne(self.pad_id)
-        type_ids = self.get_modality_type(input_ids)
-        L = input_ids.shape[1]
-        num_heads = self.net.config.num_attention_heads
-        attention_bias = self.net.esm.get_extended_attention_mask(
-            input_mask, input_ids.shape
-        ).repeat(1, num_heads, L, 1)
-        if single_modality is not None:
-            struct_bias, aa_bias = attention_bias.chunk(2, dim=-2)
-            struct_bias[single_modality, :, :, L // 2:] = float("-inf")
-            aa_bias[single_modality, :, :, : L // 2] = float("-inf")
-            attention_bias = torch.concat([struct_bias, aa_bias], dim=-2)
-        input_embeds = self.net.esm.embeddings(input_ids, attention_mask=input_mask)
-        outputs = self.net(
-            input_ids=input_ids,
-            inputs_embeds=input_embeds,
-            attention_mask=attention_bias,
-            type_ids=type_ids,
-            layer_adapters=self.layer_adapters,
-            layer_adapter_inputs=layer_adapter_inputs,
-        )
+        outputs = self._forward_net(input_ids, layer_adapter_inputs, single_modality)
+
+        # Classifier-free guidance: combine the conditional and
+        # null-conditioned logits —
+        #     logits = uncond + w * (cond - uncond)
+        # w=1 reproduces vanilla conditional sampling; w=0 the null-conditioned
+        # run; w>1 extrapolates away from the base prior toward the labels.
+        # Both passes share the same masked/noised input, so guidance only
+        # changes what the adapters contribute.
+        if (
+            self._cfg_scale != 1.0
+            and uncond_inputs is not None
+            and layer_adapter_inputs is not None
+        ):
+            logits_cond = outputs["logits"]
+            logits_uncond = self._forward_net(
+                input_ids, uncond_inputs, single_modality
+            )["logits"]
+            outputs["logits"] = logits_uncond + self._cfg_scale * (
+                logits_cond - logits_uncond
+            )
         return outputs
 
     def compute_loss(
@@ -356,6 +400,7 @@ class ConditionalDPLM2(MultimodalDiffusionProteinLanguageModel):
         unmasking_strategy="stochastic1.0",
         sampling_strategy="annealing@2.0:0.1",
         keep_history=False,
+        cfg_scale: float = 1.0,
     ):
         """Generation with fixed ``conditions`` applied at every step.
 
@@ -363,10 +408,28 @@ class ConditionalDPLM2(MultimodalDiffusionProteinLanguageModel):
         tokens) and stashed on ``self._active_layer_adapter_inputs`` for the
         duration of the run. The parent ``generate`` body is reused
         verbatim via ``super().generate(...)``.
+
+        With ``cfg_scale`` (w) != 1.0 and conditions present, classifier-free
+        guidance is applied at every denoising step:
+            logits = logits_uncond + w * (logits_cond - logits_uncond)
+        where the uncond pass uses the learned null-condition embeddings
+        (the same null tokens dropped in during training). w=1 is vanilla
+        conditional sampling (single pass); w>1 sharpens toward the labels
+        at the cost of diversity; conditions=None ignores cfg (already
+        unconditional).
         """
-        # Encode conditions once, set the stash, delegate to parent.
-        prev_active = self._active_layer_adapter_inputs
+        # Encode conditions once, set the stashes, delegate to parent.
+        prev_cond = self._active_layer_adapter_inputs
+        prev_uncond = self._active_layer_adapter_inputs_uncond
+        prev_cfg = self._cfg_scale
+
         self._active_layer_adapter_inputs = self._encode_conditions(conditions)
+        self._cfg_scale = float(cfg_scale)
+        self._active_layer_adapter_inputs_uncond = (
+            self._encode_conditions(conditions, force_unconditional=True)
+            if (self._cfg_scale != 1.0 and conditions is not None)
+            else None
+        )
         try:
             return super().generate(
                 input_tokens=input_tokens,
@@ -378,4 +441,6 @@ class ConditionalDPLM2(MultimodalDiffusionProteinLanguageModel):
                 keep_history=keep_history,
             )
         finally:
-            self._active_layer_adapter_inputs = prev_active
+            self._active_layer_adapter_inputs = prev_cond
+            self._active_layer_adapter_inputs_uncond = prev_uncond
+            self._cfg_scale = prev_cfg

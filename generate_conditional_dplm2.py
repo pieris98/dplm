@@ -283,6 +283,14 @@ def main():
     parser.add_argument("--saveto", type=str, default="generation-results/cond_dplm2")
     parser.add_argument("--save-pdb", action="store_true",
                         help="Decode struct tokens to PDB (co_generation only)")
+    parser.add_argument("--cfg-scale", type=float, default=1.0,
+                        help="Classifier-free guidance scale w: "
+                             "logits = uncond + w*(cond-uncond). 1.0 = vanilla "
+                             "conditional; >1 sharpens toward the labels.")
+    parser.add_argument("--cfg-sweep", type=str, default=None,
+                        help="Comma-separated cfg scales to loop over, e.g. "
+                             "'1,2,4,8'. Overrides --cfg-scale; each scale is "
+                             "saved to its own .../cfg<w>/ subdirectory.")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -302,11 +310,17 @@ def main():
         cond_tag = "cond_" + "+".join(p.replace(" ", "") for p in tag_parts)
         print(f"Mode: CONDITIONAL — {cond_tag}")
 
+    cfg_scales = ([float(x) for x in args.cfg_sweep.split(",") if x.strip()]
+                  if args.cfg_sweep else [args.cfg_scale])
+    if conditions is None:
+        cfg_scales = [1.0]  # null-conditioned runs have no guidance term
+        if args.cfg_sweep:
+            print("NOTE: --cfg-sweep ignored with null conditions (already unconditional)")
+
     max_iter = args.max_iter or args.seq_len
-    save_dir = os.path.join(args.saveto, args.task, f"len_{args.seq_len}", cond_tag)
-    print(f"Output dir: {save_dir}")
+    print(f"Output dir: {os.path.join(args.saveto, args.task, f'len_{args.seq_len}', cond_tag)}")
     print(f"Task={args.task}  num_seqs={args.num_seqs}  seq_len={args.seq_len}  "
-          f"max_iter={max_iter}")
+          f"max_iter={max_iter}  cfg_scales={cfg_scales}")
 
     batches = build_generation_batch(
         args.task, args.num_seqs, args.seq_len, tokenizer, device,
@@ -315,33 +329,39 @@ def main():
 
     struct_tokenizer = model.struct_tokenizer if args.save_pdb else None
 
-    all_outputs = None
-    for bi, input_tokens in enumerate(tqdm(batches, desc="Generating")):
-        with torch.inference_mode(), torch.cuda.amp.autocast(
-                dtype=torch.bfloat16):
-            outputs = model.generate(
-                input_tokens=input_tokens,
-                conditions=conditions,
-                max_iter=max_iter,
-                temperature=args.temperature,
-                unmasking_strategy=args.unmasking_strategy,
-                sampling_strategy=args.sampling_strategy,
-            )
-        if all_outputs is None:
-            all_outputs = outputs
-        else:
-            for k in all_outputs:
-                if k in outputs:
-                    all_outputs[k] = torch.concat(
-                        [all_outputs[k], outputs[k]], dim=0)
+    for cfg_scale in cfg_scales:
+        save_dir = os.path.join(
+            args.saveto, args.task, f"len_{args.seq_len}", cond_tag, f"cfg{cfg_scale:g}")
+        print(f"\n=== cfg_scale = {cfg_scale:g} → {save_dir}")
 
-    seqs = save_outputs(
-        all_outputs, args.task, tokenizer, save_dir, cond_tag,
-        args.save_pdb, struct_tokenizer,
-    )
-    print("\nSample output (first 2):")
-    for s in seqs[:2]:
-        print(f"  {s[:80]}{'...' if len(s) > 80 else ''}")
+        all_outputs = None
+        for bi, input_tokens in enumerate(tqdm(batches, desc=f"Generating w={cfg_scale:g}")):
+            with torch.inference_mode(), torch.cuda.amp.autocast(
+                    dtype=torch.bfloat16):
+                outputs = model.generate(
+                    input_tokens=input_tokens,
+                    conditions=conditions,
+                    max_iter=max_iter,
+                    temperature=args.temperature,
+                    unmasking_strategy=args.unmasking_strategy,
+                    sampling_strategy=args.sampling_strategy,
+                    cfg_scale=cfg_scale,
+                )
+            if all_outputs is None:
+                all_outputs = outputs
+            else:
+                for k in all_outputs:
+                    if k in outputs:
+                        all_outputs[k] = torch.concat(
+                            [all_outputs[k], outputs[k]], dim=0)
+
+        seqs = save_outputs(
+            all_outputs, args.task, tokenizer, save_dir, cond_tag,
+            args.save_pdb, struct_tokenizer,
+        )
+        print("Sample output (first 2):")
+        for s in seqs[:2]:
+            print(f"  {s[:80]}{'...' if len(s) > 80 else ''}")
 
 
 if __name__ == "__main__":
