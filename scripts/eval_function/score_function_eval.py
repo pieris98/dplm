@@ -22,6 +22,7 @@ import pickle
 import sys
 from collections import defaultdict
 from pathlib import Path
+import warnings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -66,6 +67,11 @@ def main():
     ap.add_argument("--obo", default=None, help="go.obo for ancestor expansion")
     ap.add_argument("--mrr-label-type", default="go", choices=["go", "ipr"])
     args = ap.parse_args()
+
+    # Sparse per-label matrices make sklearn emit these per column; the
+    # averaged metrics are still computed. Silence the flood.
+    warnings.filterwarnings("ignore", message="No positive class found")
+    warnings.filterwarnings("ignore", message="Only one class is present")
 
     evdir = Path(args.evaldir)
     manifest = json.load(open(evdir / "manifest.json"))
