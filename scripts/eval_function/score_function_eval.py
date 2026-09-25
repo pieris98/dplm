@@ -106,13 +106,20 @@ def main():
         r["mrr"] = mrr_val
         r["mrr_ranks"] = {str(k): v for k, v in ranks.items()}
 
+        # Inverse label maps: int id → ontology accession (IPR000276 / GO:...).
+        ipr_inv = {v: k for k, v in manifest["label_map"]["ipr"].items()}
+        go_inv = {v: k for k, v in manifest["label_map"]["go"].items()}
+
         # IPR set-match (needs InterProScan TSV).
         ips = dict(kv.split("=", 1) for kv in args.ips_tsv)
         if arm in ips and os.path.exists(ips[arm]):
             parsed = parse_interproscan_tsv(ips[arm])
             pred_sets = [parsed.get(sid, {}).get("ipr", set()) for sid in ids]
-            gt_sets = [set(map(str, recs[sid]["prompt_ipr"])) if sid in recs else set()
-                       for sid in ids]
+            gt_sets = [
+                {ipr_inv[int(t)] for t in recs[sid]["prompt_ipr"] if int(t) in ipr_inv}
+                if sid in recs else set()
+                for sid in ids
+            ]
             r.update({f"ipr_{k}": v for k, v in set_match_metrics(pred_sets, gt_sets).items()})
         elif arm in ips:
             print(f"warn: [{arm}] ips.tsv missing ({ips[arm]}) — IPR metrics skipped")
@@ -121,8 +128,11 @@ def main():
         dgo = dict(kv.split("=", 1) for kv in args.deepgose_tsv)
         if arm in dgo and os.path.exists(dgo[arm]):
             parsed = parse_deepgose_tsv(dgo[arm])
-            gt_sets = [set(map(str, recs[sid]["prompt_go"])) if sid in recs else set()
-                       for sid in ids]
+            gt_sets = [
+                {go_inv[int(t)] for t in recs[sid]["prompt_go"] if int(t) in go_inv}
+                if sid in recs else set()
+                for sid in ids
+            ]
             if args.obo and os.path.exists(args.obo):
                 import obonet
                 g = obonet.read_obo(args.obo)
