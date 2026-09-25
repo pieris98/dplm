@@ -194,7 +194,16 @@ def main():
     print(f"total prompt proteins: {len(flat_entries)}")
 
     Path(args.out).mkdir(parents=True, exist_ok=True)
-    manifest = {"args": vars(args), "arms": {}}
+    # Merge with any existing manifest: re-running the driver for a subset of
+    # arms must not wipe the records of arms generated earlier.
+    mpath = os.path.join(args.out, "manifest.json")
+    if os.path.exists(mpath):
+        with open(mpath) as f:
+            manifest = json.load(f)
+        manifest.setdefault("arms", {})
+        manifest["args"] = vars(args)
+    else:
+        manifest = {"args": vars(args), "arms": {}}
 
     # ---- real arm (reference) ----
     if "real" in arms:
