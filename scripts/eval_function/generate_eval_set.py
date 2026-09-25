@@ -230,7 +230,7 @@ def main():
     # --batch-size batches. The denoising loop is sequential (max_iter
     # steps), so throughput scales with batch size; conditions are per-row
     # (padded label tensors), so batching across labels is safe.
-    flat = [(ltype, lab, e) for (ltype, lab), entries in batches for e in entries]
+    flat = [(ltype, lab, e) for _lt, lab, entries in batches for e in entries]
     chunks = [flat[i : i + args.batch_size] for i in range(0, len(flat), args.batch_size)]
     print(f"{len(flat)} prompt proteins → {len(chunks)} batch(es) of ≤{args.batch_size}")
 
