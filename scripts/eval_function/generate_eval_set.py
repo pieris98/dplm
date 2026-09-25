@@ -42,6 +42,7 @@ from byprot.models.dplm2 import (  # noqa: E402
     MultimodalDiffusionProteinLanguageModel as DPLM2,
 )
 from byprot.models.dplm2 import ConditionalDPLM2  # noqa: E402,F401  (import side effects)
+from byprot.eval.function import sanitize_sequence  # noqa: E402
 
 
 def load_pickles(pkl_dir):
@@ -128,7 +129,8 @@ def encode_init(aa_len, tokenizer, n):
 
 
 def decode_seqs(tokens, tokenizer):
-    return ["".join(s.split()) for s in tokenizer.batch_decode(tokens, skip_special_tokens=True)]
+    return [sanitize_sequence("".join(s.split()))
+            for s in tokenizer.batch_decode(tokens, skip_special_tokens=True)]
 
 
 @torch.no_grad()

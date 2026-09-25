@@ -102,16 +102,18 @@ def main():
 
         # IPR set-match (needs InterProScan TSV).
         ips = dict(kv.split("=", 1) for kv in args.ips_tsv)
-        if arm in ips:
+        if arm in ips and os.path.exists(ips[arm]):
             parsed = parse_interproscan_tsv(ips[arm])
             pred_sets = [parsed.get(sid, {}).get("ipr", set()) for sid in ids]
             gt_sets = [set(map(str, recs[sid]["prompt_ipr"])) if sid in recs else set()
                        for sid in ids]
             r.update({f"ipr_{k}": v for k, v in set_match_metrics(pred_sets, gt_sets).items()})
+        elif arm in ips:
+            print(f"warn: [{arm}] ips.tsv missing ({ips[arm]}) — IPR metrics skipped")
 
         # GO set-match / Fmax (needs DeepGO-SE TSV).
         dgo = dict(kv.split("=", 1) for kv in args.deepgose_tsv)
-        if arm in dgo:
+        if arm in dgo and os.path.exists(dgo[arm]):
             parsed = parse_deepgose_tsv(dgo[arm])
             gt_sets = [set(map(str, recs[sid]["prompt_go"])) if sid in recs else set()
                        for sid in ids]

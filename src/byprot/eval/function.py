@@ -23,6 +23,20 @@ import numpy as np
 
 AA_ALPHABET = "ARNDCEQGHILKMFPSTWYV"
 
+# IUPAC extensions InterProScan accepts (X = unknown).
+_VALID_AA = set("ARNDCEQGHILKMFPSTWYVXBZJUO")
+
+
+def sanitize_sequence(seq: str) -> str:
+    """Clean a generated sequence for external predictors (InterProScan etc.).
+
+    The DPLM-2 vocabulary contains gap tokens ('-' id 30, '.' id 29) that the
+    diffusion model can sample; they are sampling artifacts, not residues, so
+    they are removed. Any other non-standard character maps to X (unknown).
+    """
+    seq = seq.replace("-", "").replace(".", "")
+    return "".join(c if c in _VALID_AA else "X" for c in seq)
+
 # ---------------------------------------------------------------------------
 # k-mer spectrum embedding (port of cfpgen metrics/spectrum.py)
 # ---------------------------------------------------------------------------

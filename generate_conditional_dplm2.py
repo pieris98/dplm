@@ -40,6 +40,7 @@ from Bio import SeqIO  # noqa: F401  (kept parity with generate_dplm2.py)
 from tqdm import tqdm
 
 from byprot.models.dplm2 import ConditionalDPLM2
+from byprot.eval.function import sanitize_sequence
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +222,7 @@ def save_outputs(outputs, task, tokenizer, save_dir, cond_tag, save_pdb,
     if task == "sequence_generation":
         aatype_tokens = output_tokens
         aa_strings = [
-            "".join(s.split()) for s in tokenizer.batch_decode(
+            sanitize_sequence("".join(s.split())) for s in tokenizer.batch_decode(
                 aatype_tokens, skip_special_tokens=True)
         ]
         save_fasta(os.path.join(save_dir, "aatype.fasta"), headers, aa_strings)
@@ -235,7 +236,7 @@ def save_outputs(outputs, task, tokenizer, save_dir, cond_tag, save_pdb,
             struct_tokens, skip_special_tokens=True)
     ]
     aa_strings = [
-        "".join(s.split()) for s in tokenizer.batch_decode(
+        sanitize_sequence("".join(s.split())) for s in tokenizer.batch_decode(
             aatype_tokens, skip_special_tokens=True)
     ]
     save_fasta(os.path.join(save_dir, "struct_token.fasta"), headers, struct_strings)
