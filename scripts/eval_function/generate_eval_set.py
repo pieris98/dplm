@@ -243,8 +243,11 @@ def main():
         tok_ours = ours.tokenizer
 
         for arm in [a for a in arms if a.startswith("ours")]:
+            # CFG sweep runs land in distinct dirs/manifest keys so w=1 is
+            # never overwritten (ours_cond_cfg2, ...).
+            arm_out = arm if args.cfg_scale == 1.0 else f"{arm}_cfg{args.cfg_scale:g}"
             recs, seqs_all = [], []
-            for chunk in tqdm(chunks, desc=f"gen:{arm}"):
+            for chunk in tqdm(chunks, desc=f"gen:{arm_out}"):
                 entries = [e for _, _, e in chunk]
                 seqs = generate_arm(
                     ours, arm, entries, args.seq_len, tok_ours, device,
@@ -253,18 +256,18 @@ def main():
                 seqs_all.extend(seqs)
                 for (_lt, lab, e), s in zip(chunk, seqs):
                     recs.append({
-                        "seq_id": f"{arm}_{ltype}{lab}_{e['uniprot_id']}",
+                        "seq_id": f"{arm_out}_{ltype}{lab}_{e['uniprot_id']}",
                         "uniprot_id": e["uniprot_id"],
                         "prompt_ipr": e.get("ipr_mapped", []) or [],
                         "prompt_go": e.get("go_f_mapped", []) or [],
                         "primary_label": [ltype, lab],
                     })
-            d = os.path.join(args.out, arm)
+            d = os.path.join(args.out, arm_out)
             Path(d).mkdir(parents=True, exist_ok=True)
             with open(os.path.join(d, "aatype.fasta"), "w") as f:
                 for r, s in zip(recs, seqs_all):
                     f.write(f">{r['seq_id']}\n{s}\n")
-            manifest["arms"][arm] = recs
+            manifest["arms"][arm_out] = recs
 
     # ---- vanilla arm ----
     if "vanilla" in arms:
