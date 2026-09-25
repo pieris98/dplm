@@ -161,6 +161,9 @@ def main():
     ap.add_argument("--ipr-mapping", default="/home/cherry/dev/phd/cfpgen/ipr_mapping.pkl")
     ap.add_argument("--n-labels", type=int, default=32)
     ap.add_argument("--seqs-per-label", type=int, default=8)
+    ap.add_argument("--batch-size", type=int, default=64,
+                    help="sequences per denoising batch — batch across labels; "
+                         "raise until GPU memory is nearly full")
     ap.add_argument("--len", type=int, default=256, dest="seq_len")
     ap.add_argument("--cfg-scale", type=float, default=1.0)
     ap.add_argument("--max-iter", type=int, default=None)
@@ -223,6 +226,14 @@ def main():
                 f.write(f">{r['seq_id']}\n{e['sequence']}\n")
         manifest["arms"]["real"] = recs
 
+    # Flatten all prompt proteins across labels, then chunk into
+    # --batch-size batches. The denoising loop is sequential (max_iter
+    # steps), so throughput scales with batch size; conditions are per-row
+    # (padded label tensors), so batching across labels is safe.
+    flat = [(ltype, lab, e) for (ltype, lab), entries in batches for e in entries]
+    chunks = [flat[i : i + args.batch_size] for i in range(0, len(flat), args.batch_size)]
+    print(f"{len(flat)} prompt proteins → {len(chunks)} batch(es) of ≤{args.batch_size}")
+
     # ---- ours_cond / ours_null ----
     if any(a.startswith("ours") for a in arms):
         print("loading our trained ckpt ...")
@@ -233,13 +244,14 @@ def main():
 
         for arm in [a for a in arms if a.startswith("ours")]:
             recs, seqs_all = [], []
-            for _lt, lab, entries in tqdm(list(batches), desc=f"gen:{arm}"):
+            for chunk in tqdm(chunks, desc=f"gen:{arm}"):
+                entries = [e for _, _, e in chunk]
                 seqs = generate_arm(
                     ours, arm, entries, args.seq_len, tok_ours, device,
                     max_iter, args.temperature, args.unmasking, args.sampling,
                     args.cfg_scale)
                 seqs_all.extend(seqs)
-                for e, s in zip(entries, seqs):
+                for (_lt, lab, e), s in zip(chunk, seqs):
                     recs.append({
                         "seq_id": f"{arm}_{ltype}{lab}_{e['uniprot_id']}",
                         "uniprot_id": e["uniprot_id"],
@@ -260,13 +272,14 @@ def main():
         vanilla = DPLM2.from_pretrained("airkingbd/dplm2_650m").to(device).eval()
         tok_v = vanilla.tokenizer
         recs, seqs_all = [], []
-        for _lt, lab, entries in tqdm(list(batches), desc="gen:vanilla"):
+        for chunk in tqdm(chunks, desc="gen:vanilla"):
+            entries = [e for _, _, e in chunk]
             seqs = generate_arm(
                 vanilla, "vanilla", entries, args.seq_len, tok_v, device,
                 max_iter, args.temperature, args.unmasking, args.sampling,
                 cfg_scale=1.0)
             seqs_all.extend(seqs)
-            for e, s in zip(entries, seqs):
+            for (_lt, lab, e), s in zip(chunk, seqs):
                 recs.append({
                     "seq_id": f"vanilla_{ltype}{lab}_{e['uniprot_id']}",
                     "uniprot_id": e["uniprot_id"],
