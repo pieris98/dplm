@@ -211,9 +211,12 @@ def main():
     # ---- real arm (reference) ----
     if "real" in arms:
         Path(args.out).joinpath("real").mkdir(parents=True, exist_ok=True)
-        recs = []
+        recs, seen_real = [], set()
         for _, _, entries in batches:
             for e in entries:
+                if e["uniprot_id"] in seen_real:
+                    continue  # same protein selected via multiple labels → prompt once
+                seen_real.add(e["uniprot_id"])
                 recs.append({
                     "seq_id": f"real_{e['uniprot_id']}",
                     "uniprot_id": e["uniprot_id"],
@@ -226,13 +229,24 @@ def main():
                 f.write(f">{r['seq_id']}\n{e['sequence']}\n")
         manifest["arms"]["real"] = recs
 
-    # Flatten all prompt proteins across labels, then chunk into
-    # --batch-size batches. The denoising loop is sequential (max_iter
-    # steps), so throughput scales with batch size; conditions are per-row
-    # (padded label tensors), so batching across labels is safe.
+    # Flatten all prompt proteins across labels, deduplicate by UniProt ID
+    # (a protein selected via several labels has ONE prompt — its own full
+    # annotation set — so generating it twice would double-count it in every
+    # metric, and duplicate FASTA headers crash fair-esm/DeepGO-SE), then
+    # chunk into --batch-size batches. The denoising loop is sequential
+    # (max_iter steps), so throughput scales with batch size; conditions are
+    # per-row (padded label tensors), so batching across labels is safe.
     flat = [(ltype, lab, e) for _lt, lab, entries in batches for e in entries]
+    seen_up = set()
+    flat_dedup = []
+    for item in flat:
+        uid = item[2]["uniprot_id"]
+        if uid not in seen_up:
+            seen_up.add(uid)
+            flat_dedup.append(item)
+    flat = flat_dedup
     chunks = [flat[i : i + args.batch_size] for i in range(0, len(flat), args.batch_size)]
-    print(f"{len(flat)} prompt proteins → {len(chunks)} batch(es) of ≤{args.batch_size}")
+    print(f"{len(flat)} unique prompt proteins → {len(chunks)} batch(es) of ≤{args.batch_size}")
 
     # ---- ours_cond / ours_null ----
     if any(a.startswith("ours") for a in arms):
