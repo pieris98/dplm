@@ -4,6 +4,51 @@ Running log of weekly progress meetings. Newest entry first.
 
 ---
 
+## 2026-09-29 — Weekly progress meeting (evaluation results review)
+
+**Context at meeting time:** first complete 7-arm function-recovery evaluation done (see [../reports/weekly_meeting_2026-09-29.md](../reports/weekly_meeting_2026-09-29.md)): real conditioning signal exists (MRR 0.110/0.128 vs 0.078 controls), but **zero IPR recovery** in all 1,280 generated sequences, and a large sequence-realism regression (MMD 0.37–0.89 vs vanilla 0.16). Positive control validates the metric (real arm IPR F1 0.978).
+
+### Feedback — Important
+
+1. **Understand conditioning input and metrics better**: are they global protein-level vs local amino-acid/motif/domain-level? Understand MMD's relevance to measuring conditional performance (is it per family, or should the ground truth be subset based on the family condition for InterPro?). Understand why IPR is 0 everywhere in the conditional arms — bug, or is InterProScan/IPR unsuitable for this kind of conditioning measurement?
+2. **Run DeepGO-SE for the GO conditioning part.**
+3. **Identify other standard benchmarks** — not necessarily only CFP-Gen's; also other known function-conditional / multi-modal PLMs.
+4. **Run the eval during training every n steps** to produce metric curves. Perhaps the adapters were overtrained to the point of steering the model too much? Checkpoint selection used "best" *total* loss — does total loss weigh all modalities (seq, struct, func)? Need a way to incorporate function into eval/validation.
+5. **Visualize generated samples** (UMAP / qualitative plots): cond vs uncond vs real, colored — understand manifolds and how samples differ.
+6. **Visualize and compare structural + sequence metrics alongside functional metrics** — how all metrics change in the conditional arms.
+
+### Preliminary evidence-based answers (diagnostics run post-meeting input)
+
+**On 1a — conditioning granularity: GLOBAL protein-level, by construction.**
+The conditioning input is a protein-level multi-hot label set (one vector per protein: GO-F terms + IPR domains). The adapter broadcast spreads this single vector across *all* residue positions (`parallel_adapter.py` — per-sample `s` expanded over the sequence dim). There is **no residue-level or motif-level conditioning pathway** in the architecture. Consequence: the adapters can bias *global composition* (amino-acid propensities), but cannot place domains at specific positions. IPR domains are **local, position-specific motifs** — plausibly unreachable through a global composition bias alone; GO molecular-function terms are comparatively more global (whole-protein activities) → the DeepGO-SE probe (feedback 2) directly tests this asymmetry.
+
+**On 1b — why IPR = 0 everywhere: NEW DIAGNOSTIC EVIDENCE (not a metric bug, not IPS unsuitability).**
+
+| Arm | IPS annotation lines | Unique IPR accessions found | Proteins annotated | Overlap with the 140 prompted accessions |
+|---|---|---|---|---|
+| ours_cond (w=1) | 851 | **19** | 218 | **0** |
+| ours_null | 589 | **8** | 156 | **0** |
+| vanilla (pretrained) | 2,481 | **517** | 233 | 29 |
+| real | 2,907 | 147 | 250 | 138 |
+
+InterProScan *does* annotate our generated sequences (851 lines for ours_cond) — but the found accessions **collapse to 19** (ours_cond) / **8** (ours_null), a tiny mode disjoint from the 140 prompted accessions. Vanilla generates 517 distinct accessions and recovers 29 prompted ones *by chance*. The real arm recovers 138/140. Conclusion: **mode collapse + complete failure to steer domain content** — the conditioning signal measurable in MRR never reaches the domain level. Also notable: annotation volume *decreases* monotonically with guidance strength (851 → 618 → 494 → 341 for w=1→8) even while composition becomes more natural — guidance pulls toward generic proteins that carry even fewer domains.
+
+**On 1c — MMD relevance:** agreed. Current MMD is computed **per arm** (all generated vs all real) — it is condition-blind and only measures realism. Next iteration adds **per-family MMD**: for each prompted label L, MMD(generated-for-L vs real-L) — i.e. subset the ground truth by the family condition exactly as proposed. MRR already does the label-grouped version; per-family MMD complements it with a threshold-free distance curve.
+
+**On 4 — checkpoint selection & loss weighting:** confirmed from code: total val/loss = the **sum of the aa-track and struct-track** diffusion cross-entropies, weighted by diffusion timestep. **Function has no loss term** — it is conditioning-only. So "best total loss" checkpoint selection is structurally blind to function fidelity, and the aatype plateau (step ~2K) while struct kept improving means "best total loss" was driven by struct gains. The overtraining hypothesis is testable: sweep saved checkpoints through the recovery probe (function recovery may peak early while realism degrades late — or never rise at all).
+
+### Next steps (priority order)
+
+1. **Run DeepGO-SE** on the four existing arms (data recovered; docker runner ready) → GO set-match + Fmax. Directly tests the granularity hypothesis: GO (global) may recover where IPR (local domains) cannot.
+2. **Per-family MMD** (subset real GT by prompted family) added to the scorer — condition-aware realism metric.
+3. **Checkpoint sweep through the recovery probe** — test the overtraining hypothesis (recovery may peak early).
+4. **UMAP/qualitative visualization** — real vs ours_cond vs ours_null vs vanilla, colored by arm/label (spectrum + ESM embeddings).
+5. **Benchmark survey** — function-conditional / multi-modal PLM evaluation protocols beyond CFP-Gen (ProGen-family conditional evals, ESM3 function-annotation evals, ZymCTRL EC evals, CAFA).
+6. **Combined metric comparison** — structural (designability/scTM) + sequence (MMD/MRR) + functional (recovery) per arm, per w.
+7. **Training changes gated on 1–3:** LoRA on attention+FFN; higher CFG dropout; checkpoint selection by function-recovery probe; validation callback (loss-delta proxy + qualitative table) for all future runs.
+
+---
+
 ## 2026-09-15 — Weekly progress meeting
 
 **Context at meeting time:** ConditionalDPLM2 (frozen DPLM-2 650M + ProCALM-style parallel adapters + CFP-Gen-style GO/IPR annotation embedder) training on Meluxina: 48K+/100K steps, val/loss 2.99 → ~2.02, aatype acc 0.10→0.114, struct acc 0→0.027, wandb run `fkokcvtq`. Eval stack not yet built; CFG sampling not yet implemented. Design/docs: [conditional_dplm2_progress_report.md](../reports/conditional_dplm2_progress_report.md), [conditional_dplm2_technical_reference.md](../reports/conditional_dplm2_technical_reference.md), [cfpgen_dplm2_meeting_synthesis.md](cfpgen_dplm2_meeting_synthesis.md).
@@ -40,8 +85,8 @@ Running log of weekly progress meetings. Newest entry first.
 
 ### Action items
 
-- [ ] Implement CFG sampling in `generate()` — `w=1` must reproduce conditional output, `w=0` the null output.
+- [x] Implement CFG sampling in `generate()` — `w=1` must reproduce conditional output, `w=0` the null output.
 - [ ] Implement validation callback: null-vs-conditional loss-delta proxy + qualitative table (12 gens + references + PDB/pLDDT/scTM). **Decision: stop & resume from `last.ckpt` once landed** (~10 min downtime) so the remaining ~50K steps carry function curves.
-- [ ] Eval stack: generation driver over held-out labels (CFP-Gen `test.pkl`) + null baseline + positive control; InterProScan driver (IPR set-match); DeepGO-SE install + CAFA-evaluator Fmax/Smin port; MRR/MMD port from `cfpgen/eval`.
+- [x] Eval stack: generation driver over held-out labels (CFP-Gen `test.pkl`) + null baseline + positive control; InterProScan driver (IPR set-match); DeepGO-SE install + CAFA-evaluator Fmax/Smin port; MRR/MMD port from `cfpgen/eval`.
 - [ ] Degradation check: co-generation designability identical-settings (pretrained DPLM-2 vs our ckpt, null conditions) + CAMEO 2022 forward folding + paper-numbers comparison table.
 - [ ] Docs: loss-decomposition + Mermaid training/inference diagrams in the technical reference.
