@@ -7,13 +7,12 @@ Companion docs: [last week's report](weekly_meeting_2026-09-22.md) (methodology,
 
 ## 1. Headline
 
-The first complete **function-recovery evaluation of the trained Conditional-DPLM-2** ran end-to-end this week: **7 arms** (ours_cond at CFG w=1/2/4/8, ours_null, vanilla pretrained DPLM-2, real positive control), 256 sequences per arm, InterProScan 5.78 + scoring on all of them. Three findings:
+The first complete **function-recovery evaluation of the trained Conditional-DPLM-2** ran end-to-end this week: **7 arms** (ours_cond at CFG w=1/2/4/8, ours_null, vanilla pretrained DPLM-2, real positive control), ~256 sequences per arm, InterProScan 5.78 + DeepGO-SE (GPU) + GO-DAG-expanded scoring on all of them. Four findings:
 
 1. **Positive:** a real but weak *conditioning signal* exists — MRR rises ~40% over both controls (0.110 vs 0.078), and CFG amplifies it to **0.128 at w=2**.
-2. **Negative:** **zero IPR domain recovery** across all 1,280 generated sequences — against a **0.978 recovery ceiling on real sequences**. The generated proteins are too compositionally degenerate for any domain annotation.
-3. **Negative:** a quantified **sequence-realism regression** from adapter training — our outputs sit 0.38–0.89 MMD from the natural distribution, vs 0.16 for vanilla DPLM-2.
-
-The DeepGO-SE GO columns are the last missing piece — its broken data link was worked around this week (web archive), and its first scoring pass is running now.
+2. **Positive (new, final scoring):** the **first non-zero function recovery** — GO Fmax rises with guidance (0.014 → 0.037 across w=1→4), crossing the null control at w≥4, with GO recall climbing monotonically (0.005 → 0.095). Recovered terms are GO ancestors/descendants of the prompts — weak, but a real dose-response on the *global* function axis.
+3. **Negative:** **zero IPR domain recovery** across all 1,536 generated sequences — against a **0.978 recovery ceiling on real sequences**. The GO-vs-IPR contrast partially revives the granularity hypothesis: global labels are (weakly) reachable, local domain placement is not.
+4. **Negative:** a quantified **sequence-realism regression** from adapter training — our outputs sit 0.38–0.89 MMD from the natural distribution, vs 0.16 for vanilla DPLM-2. Vanilla also still beats every conditioned arm on GO Fmax (0.059 vs ≤0.037).
 
 ---
 
@@ -30,26 +29,27 @@ The DeepGO-SE GO columns are the last missing piece — its broken data link was
 
 ## 3. Results
 
-Setup: 32 held-out GO molecular-function labels × 8 real sequences each → prompts are the proteins' own GO+IPR annotations; 256 conditioned generations per arm (len 256, 256 denoising steps).
+Setup: 32 held-out GO molecular-function labels × 8 real sequences each → prompts are the proteins' own GO+IPR annotations; ~256 conditioned generations per arm (len 256, 256 denoising steps). GO ground truth is ancestor-expanded over the GO DAG (go.obo); GO Fmax is the CAFA threshold-free max-F1 over DeepGO-SE per-term probabilities.
 
-| Arm | IPR F1 micro | IPR F1 macro | IPR AUPR micro | MRR ↑ | MMD-linear vs real ↓ | MMD-gaussian ↓ |
-|---|---|---|---|---|---|---|
-| ours_cond (w=1) | 0.0000 | 0.0000 | 0.0294 | **0.1104** | 0.8874 | 0.5633 |
-| ours_cond w=2 | 0.0000 | 0.0000 | 0.0272 | **0.1277** | 0.4921 | 0.3017 |
-| ours_cond w=4 | 0.0000 | 0.0000 | 0.0283 | 0.0865 | 0.3757 | 0.2241 |
-| ours_cond w=8 | 0.0000 | 0.0000 | 0.0302 | 0.0860 | 0.4069 | 0.2439 |
-| ours_null | 0.0000 | 0.0000 | 0.0312 | 0.0778 | 0.8660 | 0.5484 |
-| vanilla (pretrained 650M) | 0.0072 | 0.0005 | 0.0066 | 0.0787 | **0.1601** | **0.0983** |
-| **real (positive control)** | **0.9782** | **0.9262** | **0.9574** | 0.8099* | 0 | 0 |
+| Arm | GO Fmax ↑ | GO recall micro | IPR F1 micro | IPR AUPR micro | MRR ↑ | MMD-linear vs real ↓ | MMD-gaussian ↓ |
+|---|---|---|---|---|---|---|---|
+| ours_cond (w=1) | 0.0139 | 0.0052 | 0.0000 | 0.0292 | **0.1053** | 0.8967 | 0.5694 |
+| ours_cond w=2 | 0.0277 | 0.0420 | 0.0000 | 0.0272 | **0.1277** | 0.4921 | 0.3017 |
+| ours_cond w=4 | **0.0369** | 0.0745 | 0.0000 | 0.0283 | 0.0865 | 0.3757 | 0.2241 |
+| ours_cond w=8 | 0.0337 | 0.0953 | 0.0000 | 0.0302 | 0.0860 | 0.4069 | 0.2439 |
+| ours_null | 0.0310 | 0.0022 | 0.0000 | 0.0314 | 0.0816 | 0.8544 | 0.5398 |
+| vanilla (pretrained 650M) | 0.0591 | 0.0966 | 0.0037 | 0.0074 | 0.0745 | **0.1601** | **0.0938** |
+| **real (positive control)** | **0.2228** | 0.3043 | **0.9782** | **0.9574** | 0.8099* | 0 | 0 |
 
-\* real self-recovery MRR = 0.81 (not 1.0): the sample-size noise floor of the metric at 8 seqs/label — this recalibrates every MRR reading (the ceiling is ~0.81, not 1.0).
+\* real self-recovery MRR = 0.81 (not 1.0): the sample-size noise floor of the metric at 8 seqs/label — this recalibrates every MRR reading (the ceiling is ~0.81, not 1.0). Real GO Fmax 0.2228 is the natural-sequence ceiling of this predictor+GT on this set (DeepGO-SE's published MFO Fmax on natural proteins: 0.386).
 
-*(Table from the current eval set; a final regeneration on deduplicated FASTAs is in flight — see §4, fix #5 — and numbers may shift by small amounts.)*
+*Caveat:* the sweep arms (w=2/4/8) were generated on the pre-dedup prompt set (256 seqs) vs 250 for the main arms — within-sweep trends are internally consistent; sub-0.01 cross-arm deltas should not be over-read.
 
 ### What each number says
 
+- **GO Fmax (function recovery, global axis):** the only non-zero recovery channel. Rises with guidance 0.014 → 0.028 → 0.037 (peak w=4), crossing the null-conditioned control (0.031) at w≥4; recall micro climbs monotonically 0.005 → 0.095. Recovered terms are DAG-neighbours of the prompts (MF-term *exact* overlap stays 0–1; MF diversity 32 → 62 terms under guidance vs 243 natural / 369 vanilla) — weak, graded, and directionally correct, but still below vanilla unconditional (0.059) and 6× below the natural ceiling (0.223).
 - **MRR (label-conditionality, sequence modality):** controls sit near the random floor for 59 reference groups (~0.068); ours_cond rises above it at every w, peaking at **w=2 (+64% over controls)**. Per-label ranks confirm structure: some labels rank 1st–4th of 59, others sit near the bottom — the conditioning signal is real but covers a subset of labels.
-- **IPR set-match (function recovery via predictor):** **zero recovery in every generated arm** — no prompted domain is ever annotated by InterProScan. The positive control scores 0.978 on the *same* prompts, so the pipeline, ID handling, and metric are correct: the zeros are a property of the generated sequences.
+- **IPR set-match (function recovery, local axis):** **zero recovery in every generated arm** — no prompted domain is ever annotated by InterProScan. The positive control scores 0.978 on the *same* prompts, so the pipeline, ID handling, and metric are correct: the zeros are a property of the generated sequences. Read against the GO column, this is the granularity signal: global GO labels get graded partial recovery under a global conditioning pathway; local IPR domain placement gets none.
 - **MMD (distributional realism):** adapter training moved generation far from the natural composition (0.89 linear-MMD at w=1 vs vanilla's 0.16). CFG *improves* naturalness monotonically-ish (0.49 at w=2, 0.38 at w=4) — the unconditioned component of the CFG mix pulls outputs back toward generic protein-like composition.
 - **AUPR nuance:** ours arms (~0.03) sit slightly above vanilla (0.007) and even above… not above the real control's 0.957 — the tiny positive AUPR suggests weak ranking signal for prompted terms, far below annotation thresholds.
 
@@ -84,10 +84,10 @@ In short: the week bought the measuring stick, and the measuring stick immediate
 
 ## 6. Next steps (priority order)
 
-1. **Finish the current eval pass** (in flight): regenerate all arms on deduplicated FASTAs → re-run IPS (~2 min/arm) → DeepGO-SE on all arms (data recovered; docker runner) → scorer → complete table incl. GO Fmax/set-match and the `cfpgen` comparison arm.
+1. ~~Finish the current eval pass~~ — **done**: DeepGO-SE ran on all 7 arms (GPU, ~1 min/arm, persisted ESM-2 3B cache), scorer applied with GO-DAG-expanded GT → complete table in §3. Remaining in the eval queue: `cfpgen` comparison arm, per-family MMD, UMAP visualization.
 2. **Training change #1 — LoRA on attention+FFN** (the pre-planned capacity escape hatch), trained on the same 45K set, evaluated with the identical protocol. Success criterion: IPR recovery > 0 at w=1–2 with MMD not worse than vanilla.
 3. **Training change #2 — data scaling:** tokenize the ~49K missing CFP-Gen proteins with the corrected v2 pipeline (validated: lengths now match DPLM-2 exactly; ~10% single-bit LFQ noise accepted) → LoRA on the combined ~82K.
-4. **DeepGO-SE scoring** of all arms once prediction completes → GO Fmax/set-match columns + Smin via CAFA-evaluator.
+4. ~~DeepGO-SE scoring~~ — **done** (GO Fmax/set-match in §3). Smin via CAFA-evaluator still deferred (needs information-content weights over the GO corpus).
 5. **Docs:** loss-decomposition + Mermaid training/inference diagrams; validation callback (loss-delta proxy + qualitative examples) for future runs.
 
 ---
@@ -100,8 +100,9 @@ In short: the week bought the measuring stick, and the measuring stick immediate
 | CFG sampling (w sweep) | ✅ implemented + tested |
 | InterProScan 5.78-109.0 | ✅ local install, IPS runs verified |
 | DeepGO-SE data | ✅ recovered via web archive |
+| DeepGO-SE predict run (all 7 arms, GPU) | ✅ done (~1 min/arm; ESM-2 3B cache persisted to host) |
+| GO scoring with DAG-expanded GT (obonet) | ✅ |
 | 4-arm generation driver (batched, deduped, sanitized) | ✅ |
 | Scorer (MRR/MMD/set-match/Fmax) | ✅ |
 | `cfpgen` comparison arm driver | ✅ written; run pending |
-| DeepGO-SE predict run on eval FASTAs | 🟡 in flight |
-| LoRA training run | ⚪ next |
+| LoRA training run | ⚪ next (doubles as the granularity-layer test) |

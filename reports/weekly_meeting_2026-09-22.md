@@ -165,61 +165,75 @@ Label selection prefers GO molecular-function labels with ≥K real held-out seq
 
 ## 6. First evaluation results (2026-09-25) — findings
 
-Full 7-arm run executed: 256 conditioned sequences per arm (32 held-out GO-F labels × 8 seqs, len 256), InterProScan 5.78-109.0 on every arm, scorer applied after fixing a ground-truth conversion bug (prompt label ints were compared against predictor *accessions* — the positive control caught it).
+Full 7-arm run executed: 256 conditioned sequences per arm (32 held-out GO-F labels × 8 seqs, len 256), InterProScan 5.78-109.0 and DeepGO-SE (GPU) on every arm, scoring with GO-DAG-expanded ground truth, after fixing a ground-truth conversion bug (prompt label ints were compared against predictor *accessions* — the positive control caught it).
 
 ### Results table (GO via DeepGO-SE · IPR via InterProScan · distribution vs `real`)
 
-| Arm | GO Fmax | GO F1 micro | IPR F1 micro | IPR AUPR micro | MRR ↑ | MMD-linear ↓ |
-|---|---|---|---|---|---|---|
-| **ours_cond (w=1)** | 0.0000 | 0.0000 | 0.0000 | 0.0292 | **0.1053** | 0.8967 |
-| ours_cond w=2 (CFG) | 0.0000 | 0.0000 | 0.0000 | 0.0272 | **0.1277** | 0.4921 |
-| ours_cond w=4 (CFG) | 0.0000 | 0.0000 | 0.0000 | 0.0283 | 0.0865 | 0.3757 |
-| ours_cond w=8 (CFG) | 0.0000 | 0.0000 | 0.0000 | 0.0302 | 0.0860 | 0.4069 |
-| ours_null | 0.0000 | 0.0000 | 0.0000 | 0.0314 | 0.0816 | 0.8544 |
-| vanilla (pretrained) | 0.0000 | 0.0000 | 0.0000 | 0.0074 | 0.0745 | **0.1518** |
-| **real (ceiling)** | — | 0.0122 | **0.9782** | 0.9574 | 0.8099* | 0 |
+| Arm | GO Fmax ↑ | GO F1 micro | GO recall micro | IPR F1 micro | IPR AUPR micro | MRR ↑ | MMD-linear ↓ |
+|---|---|---|---|---|---|---|---|
+| **ours_cond (w=1)** | 0.0139 | 0.0038 | 0.0052 | 0.0000 | 0.0292 | **0.1053** | 0.8967 |
+| ours_cond w=2 (CFG) | 0.0277 | 0.0239 | 0.0420 | 0.0000 | 0.0272 | **0.1277** | 0.4921 |
+| ours_cond w=4 (CFG) | **0.0369** | 0.0275 | 0.0745 | 0.0000 | 0.0283 | 0.0865 | 0.3757 |
+| ours_cond w=8 (CFG) | 0.0337 | 0.0220 | 0.0953 | 0.0000 | 0.0302 | 0.0860 | 0.4069 |
+| ours_null | 0.0310 | 0.0020 | 0.0022 | 0.0000 | 0.0314 | 0.0816 | 0.8544 |
+| vanilla (pretrained) | 0.0591 | 0.0560 | 0.0966 | 0.0037 | 0.0074 | 0.0745 | **0.1518** |
+| **real (ceiling)** | **0.2228** | 0.1865 | 0.3043 | **0.9782** | 0.9574 | 0.8099* | 0 |
 
-\* real self-recovery MRR = 0.81 (not 1.0) — the sample-size noise floor of the metric at 8 seqs/label. GO Fmax for `real` is undefined in this run (GT = predictions' own source, thresholded set-match reported instead: F1 micro 0.0122 at the default 0.5 threshold — see the per-branch diagnosis below for why this is low even for natural sequences).
+\* real self-recovery MRR = 0.81 (not 1.0) — the sample-size noise floor of the metric at 8 seqs/label.
+
+**GO scoring protocol (final):** GO ground truth is **ancestor-expanded** over the GO DAG (`go.obo` via obonet) — predicting a parent/child of a prompted term is no longer a full miss; Fmax is the CAFA threshold-free max-F1 over DeepGO-SE's per-term probabilities. The earlier all-zeros GO column came from strict exact-term matching *without* expansion at a 0.5 threshold — the expansion is what makes the metric meaningful. `real` GO Fmax **0.2228** is the natural-protein ceiling of this predictor+GT on this set (DeepGO-SE's published MFO Fmax on natural proteins is 0.386 on their larger test set).
+
+*Caveat:* the CFG-sweep arms (w=2/4/8) were generated on the pre-deduplication prompt set (256 seqs, ~6 duplicated proteins) while the main arms were regenerated on the deduped 250 — trends *within* the sweep are internally consistent, but cross-arm deltas of <0.01 should not be over-read.
 
 ### Per-branch DeepGO-SE diagnostic (the GO story)
 
 DeepGO-SE *works* — it annotates our sequences confidently. The failure is in what it finds:
 
-| Arm | MF lines | **unique MF terms** | BP terms | CC terms | MF ∩ prompted |
-|---|---|---|---|---|---|
-| ours_cond (w=1) | 1,886 | **32** | 397 | 388 | **1** |
-| ours_null | 1,586 | **31** | 333 | 330 | **1** |
-| vanilla | 4,585 | **369** | 792 | 650 | 11 |
-| real | 3,712 | **243** | 464 | 329 | 33 |
+| Arm | MF lines | **unique MF terms** | MF ∩ prompted (exact) |
+|---|---|---|---|
+| ours_cond (w=1) | 1,886 | **32** | 1 |
+| ours_cond w=2 | 2,437 | **61** | 0 |
+| ours_cond w=4 | 2,605 | **62** | 0 |
+| ours_cond w=8 | 3,145 | **44** | 0 |
+| ours_null | 1,586 | **31** | 1 |
+| vanilla | 4,585 | **369** | 11 |
+| real | 3,712 | **243** | 33 |
 
-**The function-conditioned model's MF annotation diversity has collapsed to ~32 terms** (vs 243 for natural sequences and 369 for vanilla), with essentially zero overlap with the 59 prompted labels. Vanilla spans 369 terms — the collapse is *caused by adapter training*, not the base model. Guidance weakens annotation content further (mf lines 1,886 → ~900 across w=1→8).
+**The function-conditioned model's MF annotation diversity has collapsed to ~32 terms at w=1** (vs 243 for natural sequences and 369 for vanilla), with essentially zero *exact* overlap with the 59 prompted labels. Guidance partially restores diversity (32 → 62 terms at w=4) and annotation volume (1,886 → 3,145 MF lines at w=8) — consistent with the GO Fmax dose-response above — but stays ~6× below vanilla. Exact-term overlap stays at 0–1 everywhere in our arms: the nonzero GO Fmax comes entirely from *semantically near* predictions (GO ancestors/descendants of the prompted terms) counted after DAG expansion.
 
 ### Positive results
 
 1. **A genuine conditioning signal exists.** MRR: ours_cond 0.110 vs ours_null 0.078 / vanilla 0.079 — controls sit near the random-ranking floor (~0.068 for 59 groups); the conditioned model rises ~40% above both controls, with several labels ranking 1st–4th of 59. CFG amplifies it further: **w=2 → MRR 0.128 (+64% over controls)**.
-2. **CFG controls the fidelity/realism trade-off exactly as designed.** Higher w pulls sequences strongly back toward the natural distribution: MMD-linear drops 0.887 → 0.492 → 0.376 across w=1→2→4. The dose-response machinery works end-to-end.
-3. **The evaluation stack is validated by its own controls.** The real arm scores IPR F1 = 0.978 (InterProScan recovers prompted domains from natural sequences nearly perfectly) — the metric, the ID conversion, and the pipeline are trustworthy. The positive control also *caught* the ground-truth-conversion bug before it produced invalid conclusions.
-4. **The full pipeline is reproducible and fast**: 4×(256 seqs × 256 denoising steps) + 4 IPS scans + scoring ≈ 1 h on one RTX 3090.
+2. **First non-zero function recovery: GO, and it responds to guidance.** With DAG-expanded GT, GO Fmax rises **0.014 → 0.028 → 0.037** across w=1→2→4 (w=8: 0.034), crossing above the null-conditioned control (0.031) at w≥4; GO recall micro climbs monotonically **0.005 → 0.042 → 0.075 → 0.095**. Recovered terms are semantically-near ancestors/descendants of the prompts — weak, but a real dose-response on the *global* (molecular-function) axis.
+3. **A GO–IPR asymmetry is now visible.** GO conditioning (global, whole-protein) produces graded, guidance-amplified partial recovery; IPR conditioning (local, positional domains) stays at *exactly* 0.0000 in every generated arm at every w. The granularity hypothesis — dismissed earlier when both read zero under strict matching — is **partially revived**: global function labels are reachable through a global conditioning pathway in a way local domain placement is not.
+4. **CFG controls the fidelity/realism trade-off exactly as designed.** Higher w pulls sequences strongly back toward the natural distribution: MMD-linear drops 0.887 → 0.492 → 0.376 across w=1→2→4. The dose-response machinery works end-to-end.
+5. **The evaluation stack is validated by its own controls.** The real arm scores IPR F1 = 0.978 (InterProScan recovers prompted domains from natural sequences nearly perfectly) and GO Fmax = 0.223 (in line with DeepGO-SE's published natural-protein operating range) — the metrics, the ID conversion, the ontology expansion, and the pipeline are trustworthy. The positive control also *caught* the ground-truth-conversion bug before it produced invalid conclusions.
+6. **The full pipeline is reproducible and fast**: generation + IPS + DeepGO-SE + scoring ≈ 1 h on one RTX 3090 (DeepGO-SE itself is ~1 min/arm on GPU with a persisted ESM-2 3B cache — it was the CPU pass that took hours).
 
 ### Negative results
 
-1. **Zero function recovery across every generated arm, in both predictors.** IPR F1 = 0.0000 for all 1,280 generated sequences — not one prompted domain recovered by InterProScan, which recovers 98% of prompted domains from real sequences. GO set-match and GO Fmax = 0.0000 likewise for DeepGO-SE.
-2. **MF annotation diversity collapse (new, per-branch diagnostic).** Our conditioned model's 256 sequences annotate to only **32 unique MF terms** — vs **243** for the same number of natural sequences and **369** for vanilla generations. The adapter-trained model is stuck in a tiny functional mode.
+1. **IPR recovery is exactly zero everywhere; GO recovery is far below both ceilings.** Not one prompted domain is recovered by InterProScan in any of the 1,536 generated sequences, against a 0.978 real-sequence ceiling. GO Fmax peaks at 0.037 — 6× below the natural-sequence ceiling (0.223) and below *vanilla unconditional* generation (0.059): our conditioned outputs are still less function-annotatable than what the frozen base produces with no conditioning at all.
+2. **MF annotation diversity collapse.** At w=1 our model's 256 sequences annotate to only **32 unique MF terms** — vs **243** natural / **369** vanilla. Guidance restores roughly half (62 at w=4) but the collapse is a property of the adapter-trained weights, not the sampler.
 3. **Sequence-realism regression from adapter training.** MMD to the real distribution: vanilla 0.16 vs our arms 0.37–0.89 — adapter training moved generation into a low-complexity composition (Ala/Gly-rich) far from natural proteins. Even the best CFG point (w=4, 0.376) stays >2× worse than vanilla.
-4. **CFG cannot rescue recovery.** MRR peaks at w=2 and reverts to control levels by w=4–8; IPR/GO AUPR is flat in w. Sampling is not the bottleneck.
-5. **Degradation vs vanilla confirmed in function space.** Vanilla recovers a few domains by chance (F1 micro 0.0072); our conditioned model recovers exactly zero — the conditioned outputs are *more* degenerate than vanilla random generation.
+4. **CFG helps realism and global-function recovery, but not MRR beyond w=2 and not IPR at all.** MRR peaks at w=2 and reverts by w=4–8; IPR stays at 0.0000 for every w. Sampling is not the bottleneck for domain-level recovery.
+5. **Degradation vs vanilla confirmed in function space.** Vanilla reaches GO Fmax 0.059 / IPR F1 0.0037 with *zero* conditioning; our conditioned model peaks at 0.037 / 0.0000. The adapter-trained outputs remain more degenerate than vanilla random generation at every guidance strength.
 
 ### Diagnosis
 
-All observations are mutually consistent with the training curves: **aatype loss plateaued at step ~2K** while struct loss kept improving. The 19.6M adapters, trained at frozen base on 45K proteins for 100K steps, transmit *weak* label information (enough to bias MRR and nudge struct denoising) but far too little to shape low-complexity outputs into diverse, domain-bearing, function-annotatable sequences. The per-branch diagnostic sharpens this: **MF-term diversity collapsed ~10×** (32 terms vs 243 natural) — the model fell into a low-diversity functional mode that neither GO nor IPR evaluation can rescue. The zero-recovery result is a *capacity/training-signal* limitation, not a sampling or evaluation artifact — the positive control and CFG dose-response rule out both.
+All observations are mutually consistent with the training curves: **aatype loss plateaued at step ~2K** while struct loss kept improving. The 19.6M adapters, trained at frozen base on 45K proteins for 100K steps, transmit *weak* label information (enough to bias MRR and nudge struct denoising) but far too little to shape low-complexity outputs into diverse, domain-bearing, function-annotatable sequences. The per-branch diagnostic sharpens this: **MF-term diversity collapsed ~10×** (32 terms vs 243 natural) — the model fell into a low-diversity functional mode that guidance only partially lifts.
+
+Two distinct failure layers are now separable:
+
+1. **Capacity/mode-collapse layer** (dominant): weak label signal + low-diversity outputs affect *both* ontologies — it caps GO Fmax at ~0.037 and zeroes IPR.
+2. **Granularity layer** (now measurable, secondary): *given* that collapse, the residual GO signal responds to guidance while IPR stays identically zero — consistent with global protein-level labels being expressible through position-broadcast adapters, and local domain placement not. This asymmetry prediction should be re-tested on the LoRA model: if capacity fixes diversity and GO recovery rises but IPR stays near zero, the granularity limitation is real and motivates a position-aware conditioning pathway (per-domain embeddings, conditioning at the token level, or structure-channel hints).
 
 ---
 
 ## 7. Current state & immediate next steps
 
-1. **Meluxina:** InterProScan 5.78 + `go.obo` downloaded and **IPS runs validated on the eval FASTAs** (EBI's FTP host was refusing connections — the IPS 5.78 GitHub tarball bundles all databases and works). DeepGO-SE setup pending (KAUST data link broken — issue filed upstream; docker image `coolmaksat/deepgose` is the first fallback to probe for bundled data).
+1. **Meluxina:** InterProScan 5.78 + `go.obo` downloaded and **IPS runs validated on the eval FASTAs** (EBI's FTP host was refusing connections — the IPS 5.78 GitHub tarball bundles all databases and works). **DeepGO-SE complete**: data recovered via web archive, docker runner with GPU (`-d cuda`, ~1 min/arm) and a persisted ESM-2 3B torch-hub cache (host mount, no re-download per run); GO scoring uses DAG-expanded GT via `go.obo`.
 2. **Next: training changes to attack the zero-recovery result** (in priority order):
-   - **LoRA on attention+FFN** (the pre-planned escape hatch): adapter-only capacity has been shown insufficient; LoRA adds trainable capacity *inside* each layer while keeping most of the base frozen.
+   - **LoRA on attention+FFN** (the pre-planned escape hatch): adapter-only capacity has been shown insufficient; LoRA adds trainable capacity *inside* each layer while keeping most of the base frozen. The GO–IPR asymmetry makes this run doubly informative — it doubles as the granularity-layer test: if GO recovery rises with restored diversity but IPR stays near zero, the limitation is architectural (global conditioning pathway), not just capacity.
    - **Longer training / more data**: 45K proteins is small; scale toward the full CFP-Gen general set (104K) via the AFDB-tokenizer path, or UniProt-annotated expansions (SwissProt + InterPro + EC as the professors suggested).
    - **Balanced label sampling** and possibly increasing CFG dropout (0.1 → 0.2) to strengthen the conditional gradient.
    - Re-run the eval stack per iteration — the full loop now costs ~1 h GPU + ~30 min CPU.

@@ -99,6 +99,7 @@ nbformat==5.10.4
 nbstripout==0.8.2
 netCDF4==1.7.2
 networkx==3.2.1
+obonet==1.2.0
 ninja==1.13.0
 nodeenv==1.10.0
 numpy==1.26.4
