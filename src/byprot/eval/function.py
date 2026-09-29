@@ -157,6 +157,79 @@ def mmd(
     raise ValueError(f"unknown kernel {kernel!r}")
 
 
+def per_family_mmd(
+    generated: Sequence[str],
+    generated_labels: Sequence[Iterable[int]],
+    reference: Sequence[str],
+    reference_labels: Sequence[Iterable[int]],
+    kernels: Sequence[str] = ("linear", "gaussian"),
+    embedding_fn=None,
+) -> Dict[str, Dict[str, float]]:
+    """Condition-aware MMD: per-label distributional distance to the real set.
+
+    For every label ``L`` present in both generated and reference sets,
+    computes ``own = MMD(generated-for-L, real-for-L)`` and a ``cross``
+    baseline — the mean MMD of generated-for-L against the real sets of all
+    *other* labels. ``delta = cross - own > 0`` means the generated group sits
+    closer to its own family than to a random other family, i.e. the
+    conditioning carries label-specific distributional information beyond
+    generic realism (which the arm-level MMD alone measures).
+
+    One median-heuristic bandwidth per call (all labels pooled) so values are
+    comparable across label pairs under the gaussian kernel. Membership
+    convention matches :func:`mrr`: multi-label sequences appear in every
+    group they belong to.
+
+    Returns:
+        ``{kernel: {n_labels, own_mean, own_median, cross_mean, delta_mean,
+        frac_labels_own_closest, per_label_own, per_label_delta}}``
+    """
+    from collections import defaultdict
+
+    if embedding_fn is None:
+        embedding_fn = spectrum_map
+    emb_gen = embedding_fn(generated)
+    emb_ref = embedding_fn(reference)
+
+    g_idx: Dict[int, List[int]] = defaultdict(list)
+    r_idx: Dict[int, List[int]] = defaultdict(list)
+    for i, labs in enumerate(generated_labels):
+        for lab in labs:
+            g_idx[int(lab)].append(i)
+    for i, labs in enumerate(reference_labels):
+        for lab in labs:
+            r_idx[int(lab)].append(i)
+    common = sorted(set(g_idx) & set(r_idx))
+    if not common:
+        return {}
+
+    gamma = _median_heuristic_gamma(np.vstack([emb_gen, emb_ref]))
+
+    out: Dict[str, Dict[str, float]] = {}
+    for kernel in kernels:
+        own, cross = {}, {}
+        for lab in common:
+            own[lab] = mmd(emb1=emb_gen[g_idx[lab]], emb2=emb_ref[r_idx[lab]],
+                           kernel=kernel, gamma=gamma)
+            cross[lab] = float(np.mean([
+                mmd(emb1=emb_gen[g_idx[lab]], emb2=emb_ref[r_idx[other]],
+                    kernel=kernel, gamma=gamma)
+                for other in common if other != lab
+            ]))
+        deltas = {lab: cross[lab] - own[lab] for lab in common}
+        out[kernel] = {
+            "n_labels": len(common),
+            "own_mean": float(np.mean(list(own.values()))),
+            "own_median": float(np.median(list(own.values()))),
+            "cross_mean": float(np.mean(list(cross.values()))),
+            "delta_mean": float(np.mean(list(deltas.values()))),
+            "frac_labels_own_closest": float(np.mean([d > 0 for d in deltas.values()])),
+            "per_label_own": {str(lab): round(v, 6) for lab, v in own.items()},
+            "per_label_delta": {str(lab): round(v, 6) for lab, v in deltas.items()},
+        }
+    return out
+
+
 # ---------------------------------------------------------------------------
 # MRR (port of cfpgen metrics/conditional.py; hierarchy flags deferred)
 # ---------------------------------------------------------------------------

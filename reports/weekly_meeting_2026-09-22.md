@@ -109,13 +109,14 @@ Label selection prefers GO molecular-function labels with ≥K real held-out seq
 - **Measures:** the distance between the generated sequence distribution and the real distribution in k-mer spectrum space. Linear kernel: Euclidean distance between mean embeddings. Gaussian kernel: full kernel two-sample statistic with median-heuristic bandwidth — sensitive to higher-order composition differences.
 - **Modality / data:** amino-acid sequences only; each generated arm vs the `real` arm.
 - **Range / reading:** 0 = indistinguishable distributions; lower is better. Interpret *relative* to the real arm's self-MMD (the noise floor).
-- **Caveat:** MMD ≈ 0 means "protein-like overall composition", not "the right protein" — it is condition-blind unless computed per-label.
+- **Caveat:** MMD ≈ 0 means "protein-like overall composition", not "the right protein" — it is condition-blind unless computed per-label. The per-label variant (per-family MMD, §6) fixes this: it subsets the ground truth by the prompted family and adds a cross-family baseline, isolating label-specific proximity from generic realism.
 
 ### 4.3 IPR set-match (InterProScan recovery) — *function modality*
 
 - **Measures:** whether generated sequences, when annotated by InterProScan, recover the IPR domains they were conditioned on. Per sequence: predicted IPR accessions (predictor output) vs the prompted IPR set → multi-label precision/recall/F1 (micro + macro), AUPR, AUC over the binarized label matrix.
 - **Modality / data:** generated sequences → InterProScan (external predictor) → IPR accession sets; ground truth = the prompt labels from held-out annotations.
-- **Range / reading:** F1 ∈ [0, 1], higher better. Micro weights frequent domains; macro treats rare domains equally — report both.
+- **Range / reading:** F1 ∈ [0, 1], higher better. Micro weights frequent domains; macro treats rare domains equally — report both. **Do not read the AUPR/AUC columns for this predictor**: IPS emits set-valued (binary) output, and micro-AP on binary matrices has a nonzero baseline even for perfectly disjoint pred/GT sets (verified: 0.029 "AUPR" at exactly TP=0 in ours arms) — see the §6 audit.
+- **Composition artifact found in our arms (§6 audit):** the dominant IPS signature in ours_cond/ours_null output is the PRINTS *Type I antifreeze protein* repeat (52% of rows) — a low-complexity Ala/Gly-rich match, consistent with the MMD degeneracy finding, not real domain content.
 - **Caveat:** bounded by InterProScan's own recall on natural proteins — which is exactly why the `real` arm is scored identically: it defines the predictor ceiling (upper bound below 1.0).
 
 ### 4.4 GO set-match (DeepGO-SE recovery, thresholded) — *function modality*
@@ -200,6 +201,39 @@ DeepGO-SE *works* — it annotates our sequences confidently. The failure is in 
 | real | 3,712 | **243** | 33 |
 
 **The function-conditioned model's MF annotation diversity has collapsed to ~32 terms at w=1** (vs 243 for natural sequences and 369 for vanilla), with essentially zero *exact* overlap with the 59 prompted labels. Guidance partially restores diversity (32 → 62 terms at w=4) and annotation volume (1,886 → 3,145 MF lines at w=8) — consistent with the GO Fmax dose-response above — but stays ~6× below vanilla. Exact-term overlap stays at 0–1 everywhere in our arms: the nonzero GO Fmax comes entirely from *semantically near* predictions (GO ancestors/descendants of the prompted terms) counted after DAG expansion.
+
+### InterProScan zero-result audit (2026-09-29, scorer-free)
+
+The exact-zero IPR column was audited for hidden plumbing bugs (`scripts/eval_function/diagnose_ips.py`), because a silent failure of exactly this shape had already occurred once with DeepGO-SE. Verdict: **the zeros are genuine properties of the generated sequences, not a bug.**
+
+| Check | ours_cond | ours_null | vanilla | real |
+|---|---|---|---|---|
+| stale/unmatched IDs (ips vs fasta vs manifest) | 0 | 0 | 0 | 0 |
+| raw TP (hand-computed set overlap) | **0** | **0** | 4 | 1,144 |
+| proteins with ≥1 recovered prompted domain | 0/250 | 0/250 | 4/250 | 250/250 |
+| label-groups with ≥1 recovery | 0/59 | 0/59 | 10/59 | 59/59 |
+
+1. **The join and conversion layers are clean.** Every IPS row maps to a current FASTA id and manifest record; the raw (hand-computed, conversion-free) overlap equals the scorer's — no ID, staleness, or label-map bug. The identical code path yields 0.978 on `real`, so a systematic pipeline failure is excluded.
+2. **What IPS *does* find in our arms is a composition artifact — proven by a shuffled control.** 444 of ours_cond's 851 IPS rows (52%) match a single signature — `PRINTS "Type I antifreeze protein signature"` (IPR000104), a small Ala/Gly-rich repeat — vs a broad Gene3D/Pfam/SUPERFAMILY spread for vanilla and real. The decisive control: IPS on a **composition-preserved shuffled** copy of ours_cond gives a statistically identical output (870 rows, 20 accessions, same top hit — vs 851/19 for the real generation run): *every* annotation our outputs attract survives destroying their sequence order, so it carries zero sequence-specific domain content. The mirror control confirms IPS sensitivity: shuffling *natural* sequences collapses annotation from 2,907 rows / 147 accessions to 75 rows / **0** accessions (only MobiDBLite disorder calls survive — those are composition-driven by nature).
+3. **Metric caveat discovered en passant:** `ipr_aupr_*` is computed on binarized set predictions, and sklearn's micro-AP has a **nonzero baseline even for perfectly disjoint binary matrices** — ours arms show AUPR 0.029 with exactly TP=0 (verified by direct recomputation), while vanilla shows *lower* AUPR (0.007) *despite* real overlap. AUPR-on-binary-set-predictions tracks prediction volume, not correctness; for set-valued predictor outputs read only P/R/F1 (AUPR becomes meaningful when a predictor emits per-term scores, as DeepGO-SE does for GO).
+
+### Per-family MMD (condition-aware realism; feedback point 1)
+
+The arm-level MMD is condition-blind; the new **per-family MMD** (`per_family_mmd` in `byprot/eval/function.py`) subsets by the prompted family: for each label L, `own = MMD(generated-for-L, real-for-L)` against a cross-family baseline `cross = mean over L'≠L of MMD(generated-for-L, real-for-L')`. `delta = cross − own > 0` ⇒ the generated group sits closer to its own family than to a random other family — label-specific distributional information, not just generic realism.
+
+| Arm | delta (linear) ↑ | frac own-closest ↑ | reading |
+|---|---|---|---|
+| ours_cond (w=1) | +0.0045 | 0.53 | weak |
+| ours_cond w=2 | **+0.0185** | **0.71** | peak |
+| ours_cond w=4 | +0.0122 | 0.66 | decaying |
+| ours_cond w=8 | +0.0066 | 0.61 | decaying |
+| ours_null | −0.0009 | 0.54 | chance |
+| vanilla | −0.0011 | 0.51 | chance |
+| real (calibration) | +0.8006 | 1.00 | own = 0 by construction ✓ |
+
+- **Independent confirmation of the MRR story.** A completely different construction (distributional distance vs centroid ranking) reproduces the same shape: controls sit exactly at chance (0.51/0.54 ≈ 0.5 for 59 labels), ours_cond separates above it, and the dose-response peaks at **w=2** — the same optimum as MRR. The conditioning carries real label-specific composition information; it is simply far too weak to produce annotatable function.
+- **Does MRR need the same adjustment? No** — MRR is already label-grouped (it ranks generated-for-L against all real groups and asks whether L ranks first). What per-family MMD adds is the *distance-level* analog (MRR is a rank and saturates at the 8-seqs/label noise floor of 0.81) plus the explicit cross-family baseline, which turns "close to real" into "closer to *its own* real than to other families".
+- Absolute own-distances remain large (own ≈ 1.11 linear vs vanilla 0.68): within a family, our outputs are still far from natural proteins — the delta measures *relative* family-specificity only.
 
 ### Positive results
 

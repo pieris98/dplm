@@ -19,11 +19,12 @@ The first complete **function-recovery evaluation of the trained Conditional-DPL
 ## 2. What was done this week
 
 - **InterProScan installed and validated.** EBI's `ftp.ebi.ac.uk` refused connections from both our network and datacenter ranges (breaking the IPS 6/nextflow route and direct downloads). Workaround: the **5.78-109.0 GitHub release tarball** (6.6 GB, bundles all member databases), validated on the bundled test proteins, then on all eval FASTAs.
-- **DeepGO-SE data recovered.** The only data source (`deepgo.cbrc.kaust.edu.sa/data/deepgo2/data.tar.gz`) is a dead link — [issue filed upstream]. Workaround: the full dataset recovered via the **web archive**; the official docker image (`coolmaksat/deepgose`, bundles the predict env) probed as the runner. `go.obo` fetched for GO-DAG logic.
-- **CFG dose-response sweep executed** on the trained checkpoint: w ∈ {1, 2, 4, 8}, 256 sequences each, on identical held-out prompts.
-- **Eval pipeline hardened** through five real failures (section 4) — each fixed permanently in the committed scripts.
+- **DeepGO-SE data recovered + run on all 7 arms (GPU).** The only data source (`deepgo.cbrc.kaust.edu.sa/data/deepgo2/data.tar.gz`) is a dead link — [issue filed upstream]. Workaround: the full dataset recovered via the **web archive**; the official docker image (`coolmaksat/deepgose`) as runner; ESM-2 3B checkpoint persisted to a host cache mount (no re-download per run); ~1 min/arm on GPU (`-d cuda`). `go.obo` fetched for GO-DAG-expanded scoring.
+- **InterProScan zero-result audit (scorer-free).** Exact-zero IPR in all conditional arms looked suspicious enough to rule out a silent bug (`diagnose_ips.py`): join integrity, hand-computed raw overlap, and a composition-preserved shuffled-output control. Verdict: zeros are genuine; our arms' only annotatable mode is a low-complexity repeat artifact (§3).
+- **Per-family MMD implemented** (feedback 1): condition-aware realism — generated-for-L vs real-for-L with a cross-family baseline; unit-checked; run on all 7 arms (§3).
+- **CFG dose-response sweep executed** on the trained checkpoint: w ∈ {1, 2, 4, 8}, ~256 sequences each, on identical held-out prompts.
 - **`cfpgen` comparison arm implemented** (standalone driver running CFP-Gen 650M in its own repo/env on our exact prompts — no package integration needed).
-- **Eval throughput:** generation batching made label-crossing with a `--batch-size` knob (~5–8× faster).
+- **Eval throughput:** generation batching with a `--batch-size` knob (~5–8× faster).
 
 ---
 
@@ -51,6 +52,38 @@ Setup: 32 held-out GO molecular-function labels × 8 real sequences each → pro
 - **MRR (label-conditionality, sequence modality):** controls sit near the random floor for 59 reference groups (~0.068); ours_cond rises above it at every w, peaking at **w=2 (+64% over controls)**. Per-label ranks confirm structure: some labels rank 1st–4th of 59, others sit near the bottom — the conditioning signal is real but covers a subset of labels.
 - **IPR set-match (function recovery, local axis):** **zero recovery in every generated arm** — no prompted domain is ever annotated by InterProScan. The positive control scores 0.978 on the *same* prompts, so the pipeline, ID handling, and metric are correct: the zeros are a property of the generated sequences. Read against the GO column, this is the granularity signal: global GO labels get graded partial recovery under a global conditioning pathway; local IPR domain placement gets none.
 - **MMD (distributional realism):** adapter training moved generation far from the natural composition (0.89 linear-MMD at w=1 vs vanilla's 0.16). CFG *improves* naturalness monotonically-ish (0.49 at w=2, 0.38 at w=4) — the unconditioned component of the CFG mix pulls outputs back toward generic protein-like composition.
+
+### Per-family MMD (condition-aware) — new metric, feedback point 1
+
+Arm-level MMD is condition-blind; the per-family variant subsets the ground truth by the prompted family: `delta = MMD(gen-for-L, real-L')̄ − MMD(gen-for-L, real-for-L)` — positive delta means the generated group sits closer to *its own* family than to a random other family.
+
+| Arm | delta ↑ (linear) | frac own-closest ↑ | | Arm | delta ↑ | frac ↑ |
+|---|---|---|---|---|---|---|
+| ours_cond w=1 | +0.0045 | 0.53 | | ours_null | −0.0009 | 0.54 |
+| ours_cond **w=2** | **+0.0185** | **0.71** | | vanilla | −0.0011 | 0.51 |
+| ours_cond w=4 | +0.0122 | 0.66 | | real (calibration) | +0.8006 | 1.00 |
+| ours_cond w=8 | +0.0066 | 0.61 | | (real: own = 0 by construction) | | |
+
+Controls sit exactly at chance; ours_cond separates above it and **peaks at w=2 — the same optimum as MRR**, from a completely different construction. The conditioning carries genuine label-specific composition information; it is far too weak to produce annotatable function. (MRR itself needs no analogous adjustment — it is already label-grouped; per-family MMD adds the distance-level analog plus the explicit cross-family baseline.)
+
+### InterProScan zero-result audit — zeros are genuine, not a bug
+
+| Check | ours_cond | ours_null | vanilla | real |
+|---|---|---|---|---|
+| stale/unmatched IDs | 0 | 0 | 0 | 0 |
+| raw TP (hand-computed overlap) | **0** | **0** | 4 | 1,144 |
+| label-groups with ≥1 recovery | 0/59 | 0/59 | 10/59 | 59/59 |
+
+The identical code path yields 0.978 on real — no join/ID/conversion bug exists. What IPS *does* find in our arms: **52% of all rows are one signature — PRINTS "Type I antifreeze protein repeat" (IPR000104)**, a small Ala/Gly-rich low-complexity match (vs a broad Gene3D/Pfam/SUPERFAMILY spread in vanilla/real). The decisive control — IPS on composition-preserved *shuffled* sequences:
+
+| IPS run | rows | proteins | unique IPR | top signature |
+|---|---|---|---|---|
+| ours_cond (as generated) | 851 | 221 | 19 | antifreeze repeat (444) |
+| ours_cond **shuffled** | 870 | 225 | 20 | antifreeze repeat (408) |
+| real (natural) | 2,907 | 250 | 147 | Gene3D domains |
+| real **shuffled** | 75 | 41 | **0** | MobiDBLite disorder only |
+
+Shuffling our outputs *changes nothing* (same volume, same accessions, same top hit): every annotation they attract survives destroying sequence order — zero sequence-specific domain content, pure composition artifact. Shuffling natural sequences *destroys* annotation (147 accessions → 0), confirming IPS output is genuinely sequence-sensitive where real domains exist. Incidentally, the shuffled-ours IPS run took ~25 min in the PANTHER stage vs seconds for natural sequences — the degenerate composition matches thousands of profile HMMs. Also flagged: `ipr_aupr_*` is uninterpretable for set-valued predictor output (nonzero micro-AP baseline even at exactly TP=0) — read only P/R/F1 for IPS.
 - **AUPR nuance:** ours arms (~0.03) sit slightly above vanilla (0.007) and even above… not above the real control's 0.957 — the tiny positive AUPR suggests weak ranking signal for prompted terms, far below annotation thresholds.
 
 ---

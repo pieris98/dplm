@@ -33,6 +33,7 @@ from byprot.eval.function import (  # noqa: E402
     fmax,
     mmd,
     mrr,
+    per_family_mmd,
     propagate_ancestors,
     set_match_metrics,
     spectrum_map,
@@ -105,6 +106,18 @@ def main():
         mrr_val, ranks = mrr(list(seqs.values()), gen_labels, real_seqs, real_labels)
         r["mrr"] = mrr_val
         r["mrr_ranks"] = {str(k): v for k, v in ranks.items()}
+
+        # Per-family MMD: generated-for-L vs real-for-L, with the cross-family
+        # baseline (delta = cross - own > 0 == label-specific proximity).
+        # For the `real` arm this is the noise floor (own == 0 by construction;
+        # frac == 1.0 expected).
+        pf = per_family_mmd(list(seqs.values()), gen_labels, real_seqs, real_labels)
+        for kernel, stats in pf.items():
+            r[f"pfmmd_{kernel}_own"] = stats["own_mean"]
+            r[f"pfmmd_{kernel}_cross"] = stats["cross_mean"]
+            r[f"pfmmd_{kernel}_delta"] = stats["delta_mean"]
+            r[f"pfmmd_{kernel}_frac"] = stats["frac_labels_own_closest"]
+        r["pfmmd_detail"] = pf
 
         # Inverse label maps: int id → ontology accession (IPR000276 / GO:...).
         ipr_inv = {v: k for k, v in manifest["label_map"]["ipr"].items()}
@@ -181,7 +194,9 @@ def main():
         results[arm] = r
 
     (evdir / "results.json").write_text(json.dumps(results, indent=2))
-    keys = sorted({k for r in results.values() for k in r})
+    # Markdown table: scalar keys only (nested dicts live in results.json).
+    keys = sorted({k for r in results.values() for k in r
+                   if not isinstance(r.get(k), (dict, list))})
     lines = ["| arm | " + " | ".join(keys) + " |",
              "|---" * (len(keys) + 1) + "|"]
     for arm, r in results.items():

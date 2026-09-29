@@ -21,6 +21,7 @@ from byprot.eval.function import (  # noqa: E402
     fmax,
     mmd,
     mrr,
+    per_family_mmd,
     set_match_metrics,
     spectrum_map,
 )
@@ -88,6 +89,30 @@ check("fmax perfect scores = 1.0", fmax(perfect, gt_bin) == 1.0)
 noisy = np.clip(gt_bin * 0.6 + rng.random(gt_bin.shape) * 0.7, 0, 1)
 f_noisy = fmax(noisy, gt_bin)
 check("fmax noisy < 1.0 but > 0.5", 0.5 < f_noisy < 1.0, f"fmax={f_noisy:.3f}")
+
+# --- per-family MMD: label-specific proximity vs condition-blind baseline ---
+# 3 reference groups (disjoint alphabets); "good" generation copies each group
+# with noise → per-family MMD should sit below the cross-family baseline.
+pf_seqs, pf_labels = list(gen_good), list(gen_labels_good)
+pf = per_family_mmd(pf_seqs, pf_labels, ref_seqs, ref_labels)
+for kernel in ("linear", "gaussian"):
+    s = pf[kernel]
+    check(f"per-family MMD ({kernel}): conditioned > condition-blind",
+          s["delta_mean"] > 0, f"delta={s['delta_mean']:.4f}")
+    check(f"per-family MMD ({kernel}): all labels own-closest",
+          s["frac_labels_own_closest"] == 1.0,
+          f"frac={s['frac_labels_own_closest']:.2f}")
+# condition-blind control: every group generated from the SAME composition —
+# no label-specific signal → delta should collapse toward 0.
+blind_seqs = [seqs_b[i % len(seqs_b)] for i in range(24)]
+blind_labels = [[i // 8] for i in range(24)]
+pf_blind = per_family_mmd(blind_seqs, blind_labels, ref_seqs, ref_labels)
+check("per-family MMD linear: blind delta ≈ 0 (|delta| < 0.05)",
+      abs(pf_blind["linear"]["delta_mean"]) < 0.05,
+      f"delta={pf_blind['linear']['delta_mean']:.4f}")
+check("per-family MMD self-reference noise floor: real-vs-real own = 0",
+      per_family_mmd(ref_seqs, ref_labels, ref_seqs, ref_labels)
+      ["linear"]["own_mean"] < 1e-6)
 
 print("\n=== VERDICT ===")
 print("ALL METRIC CHECKS PASSED" if ok else "SOME CHECKS FAILED")
