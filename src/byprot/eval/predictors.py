@@ -122,12 +122,18 @@ def run_deepgose(
 def parse_deepgose_tsv(tsv_path: str) -> Dict[str, Dict[str, float]]:
     """Parse a DeepGO-SE TSV: ``{protein_id: {GO:XXXX: score}}``.
 
+    Accepts plain and gzip-compressed TSVs (DeepGO-SE writes
+    ``*_preds_{mf,bp,cc}.tsv.gz``).
+
     ID-convention: our driver writes FASTA headers as
     ``>{seq_id}`` where ``seq_id`` already carries arm/cfg/sample/uniprot
     information; the first tab field is used verbatim.
     """
+    import gzip
+
     per_protein: Dict[str, Dict[str, float]] = {}
-    with open(tsv_path) as f:
+    opener = gzip.open if tsv_path.endswith(".gz") else open
+    with opener(tsv_path, "rt") as f:
         for line in f:
             if not line.strip():
                 continue

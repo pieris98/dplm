@@ -124,10 +124,23 @@ def main():
         elif arm in ips:
             print(f"warn: [{arm}] ips.tsv missing ({ips[arm]}) — IPR metrics skipped")
 
-        # GO set-match / Fmax (needs DeepGO-SE TSV).
-        dgo = dict(kv.split("=", 1) for kv in args.deepgose_tsv)
-        if arm in dgo and os.path.exists(dgo[arm]):
-            parsed = parse_deepgose_tsv(dgo[arm])
+        # GO set-match / Fmax (needs DeepGO-SE TSVs — one gz per GO branch).
+        dgo_lists = defaultdict(list)
+        for kv in args.deepgose_tsv:
+            a, p = kv.split("=", 1)
+            import glob as _glob
+
+            matches = sorted(_glob.glob(p))
+            if matches:
+                dgo_lists[a].extend(matches)
+            elif os.path.exists(p):
+                dgo_lists[a].append(p)
+
+        if dgo_lists.get(arm):
+            parsed = {}
+            for p in dgo_lists[arm]:
+                for pid, terms_scores in parse_deepgose_tsv(p).items():
+                    parsed.setdefault(pid, {}).update(terms_scores)
             gt_sets = [
                 {go_inv[int(t)] for t in recs[sid]["prompt_go"] if int(t) in go_inv}
                 if sid in recs else set()
