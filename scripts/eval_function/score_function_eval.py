@@ -161,11 +161,11 @@ def main():
                       set_match_metrics(pred_sets, gt_sets).items()})
 
             # CAFA protein-centric Fmax on raw per-term probabilities.
+            # gt_sets already hold GO accessions (converted above and
+            # ancestor-expanded) — no further conversion.
             go_inv = {v: k for k, v in manifest["label_map"]["go"].items()}
-            gt_str = [set(go_inv.get(int(t), f"GO:{t:07d}") for t in s)
-                      for s in gt_sets]
             terms = sorted({t for s in parsed.values() for t in s}
-                           | set().union(*map(set, gt_str)))
+                           | set().union(*map(set, gt_sets)))
             tidx = {t: j for j, t in enumerate(terms)}
             scores = np.zeros((len(ids), len(terms)))
             gt_bin = np.zeros((len(ids), len(terms)))
@@ -173,7 +173,7 @@ def main():
                 for t, sc in parsed.get(sid, {}).items():
                     if t in tidx:
                         scores[i, tidx[t]] = sc
-                for t in gt_str[i]:
+                for t in gt_sets[i]:
                     if t in tidx:
                         gt_bin[i, tidx[t]] = 1
             r["go_fmax"] = fmax(scores, gt_bin)
