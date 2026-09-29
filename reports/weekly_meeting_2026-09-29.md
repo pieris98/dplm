@@ -66,6 +66,33 @@ Arm-level MMD is condition-blind; the per-family variant subsets the ground trut
 
 Controls sit exactly at chance; ours_cond separates above it and **peaks at w=2 — the same optimum as MRR**, from a completely different construction. The conditioning carries genuine label-specific composition information; it is far too weak to produce annotatable function. (MRR itself needs no analogous adjustment — it is already label-grouped; per-family MMD adds the distance-level analog plus the explicit cross-family baseline.)
 
+### UMAP in shared ESM-2 space (feedback 5)
+
+One UMAP fit on all 1,768 mean-pooled ESM-2 3B embeddings (L2-normalized, the `aatype_esm.pkl` files DeepGO-SE leaves per arm); separation quantified in the **raw** embedding space, not UMAP. Script: `scripts/eval_function/plot_umap.py`; figures: `figs/umap_{by_arm,centroids,labels}.png` (copies in `reports/figures/`).
+
+![UMAP by arm](figures/umap_by_arm.png)
+
+| Arm | \|centroid − real\| ↓ (raw ESM) | intra-arm spread |
+|---|---|---|
+| vanilla | **0.086** | 0.223 |
+| ours_cond w=2 | 0.319 | 0.278 |
+| ours_cond w=4 | 0.328 | 0.297 |
+| ours_cond w=1 | 0.366 | 0.181 |
+| ours_null | 0.367 | 0.178 |
+| ours_cond w=8 | 0.402 | 0.253 |
+| real (reference) | 0 | 0.181 |
+
+![Centroids](figures/umap_centroids.png)
+
+1. **Adapter training displaced the entire output distribution.** Vanilla DPLM-2 samples sit essentially *on* the real manifold (d=0.086); every adapter-trained arm — including the null-conditioned one — occupies a disjoint region ~4× farther away (d=0.32–0.40). The displacement is a property of the trained weights, not of conditioning.
+2. **CFG does not approach the real manifold in ESM space.** The MMD improvement under guidance (0.90→0.38) is composition-level (k-mer space); in ESM space the centroids stay at 0.32–0.40 with no monotone approach (w=2 closest, w=8 farthest). Guidance makes outputs *compositionally* more natural while they remain *semantically* off-manifold — which is exactly what the IPS audit saw: sequences that look protein-like in composition but annotate only to a low-complexity repeat.
+3. **The collapse, seen structurally.** w=1/null intra-arm spread (0.178) is *tighter than the real arm's own spread* (0.181) — a single narrow mode; CFG restores spread (0.25–0.30), matching the MF-diversity counts (32→62 terms).
+4. **Per-label conditioning is qualitatively visible.** In the per-label panels, prompted points for the highest-Δ labels (NAD binding, cobalamin synthase, translation-initiation-factor activity) clump within the ours region, separated from other labels — the per-family MMD signal, visible by eye. The clump lives inside the off-manifold region: label-specific yet unnatural.
+
+![Per-label panels](figures/umap_labels.png)
+
+5. The natural proteins that embed closest to the adapter-trained region are the most Ala/Gly-rich ones available (A+G 23–31% vs real-arm mean 16.8%, max 31.5%) — the ours region is the low-complexity corner of protein space, consistent with the antifreeze-repeat IPS artifact.
+
 ### InterProScan zero-result audit — zeros are genuine, not a bug
 
 | Check | ours_cond | ours_null | vanilla | real |
