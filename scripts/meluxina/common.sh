@@ -224,6 +224,40 @@ run_in_container_shell() {
   [[ -t 0 ]] && sh=(bash -i)
   apptainer exec "${CONTAINER_ARGS[@]}" "${DPLM_SIF}" "${sh[@]}"
 }
+# NOTE: the container's bash is the image's own (ancient, 4.4 on this image).
+# That is cosmetic — but inside the container there is NO apptainer (cannot
+# nest), NO java, NO InterProScan: the eval tools (IPS, the deepgose sandbox)
+# must run in the HOST shell of the allocation. Use run_in_container_shell
+# only for training/generation/scoring; run IPS and DeepGO-SE on the host.
+
+# --- Java (needed by InterProScan) ------------------------------------------
+# The module function is unavailable in SLURM batch shells and --noprofile
+# interactive shells, and module init can hang — same hang-safe throwaway
+# subshell discovery as the apptainer block above, plus a filesystem glob
+# fallback over EasyBuild prefixes. Safe to call repeatedly.
+ensure_java() {
+  command -v java >/dev/null 2>&1 && { java -version 2>&1 | head -1; return 0; }
+  local _jbin
+  _jbin="$(timeout 20 bash -c '
+    for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules; do
+      [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
+    done
+    if command -v module >/dev/null 2>&1; then
+      module load Java >/dev/null 2>&1 || true
+    fi
+    command -v java >/dev/null 2>&1 && dirname "$(readlink -f "$(command -v java)")"
+  ' 2>/dev/null || true)"
+  if [[ -n "$_jbin" && -x "$_jbin/java" ]]; then
+    export PATH="${_jbin}:${PATH}"
+  else
+    local j
+    for j in /apps/USE/easybuild/release/*/software/Java/*/bin; do
+      [[ -x "$j/java" ]] && export PATH="${j}:${PATH}" && break
+    done
+  fi
+  command -v java >/dev/null 2>&1 || { echo "[meluxina] ERROR: java not found (required by InterProScan)"; return 1; }
+  java -version 2>&1 | head -1
+}
 # NOTE: --cleanenv + explicit PATH are required. Unlike Docker, Apptainer
 # propagates the HOST environment into the container, overriding the image's
 # ENV PATH — and the host PATH has no `python` (the image's interpreter is

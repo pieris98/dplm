@@ -217,6 +217,20 @@ SKIP_GENERATE=1 sbatch --export=ALL scripts/meluxina/eval_pipeline.sbatch  # re-
 
 - Every stage **skips existing outputs** — a timed-out job is resumed by
   resubmitting the same command.
+
+Interactive variant (first-time debugging / poking at arms):
+
+```bash
+scripts/meluxina/interactive.sh evalsh   # 1 GPU, qos=short, 4 h, host shell with java+apptainer ready
+```
+
+> **Why not `interactive.sh alloc` + `run_in_container_shell` for eval?** The
+> dplm container's bash is the image's own (ancient 4.4) and inside it there
+> is **no apptainer** (containers cannot nest) and **no java/IPS** — eval
+> tools must run in the **host** shell of the allocation. `evalsh` is that
+> host shell with everything pre-sourced; the dplm container stays one-shot
+> (`run_in_container ...`) for generation and scoring. The automated
+> `eval_pipeline.sbatch` runs the identical sequence headlessly.
 - Budget under `qos=short` (6 h): generation is the fast part; **InterProScan
   on our degenerate arms can take ~25 min/arm** (PANTHER stage matches
   thousands of HMMs on low-complexity sequences — slow, not hung). 7 arms +

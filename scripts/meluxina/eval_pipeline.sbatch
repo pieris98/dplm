@@ -58,29 +58,8 @@ ARMS_ALL="$ARMS_MAIN"
 for w in $SWEEP; do ARMS_ALL="$ARMS_ALL ours_cond_cfg${w}"; done
 echo "[fn_eval] run=$RUN_NAME ckpt=$CKPT arms=($ARMS_ALL)"
 
-# --- Java for InterProScan ---------------------------------------------------
-# Batch shells have no module function (and module init can hang) — same
-# hang-safe throwaway-subshell discovery common.sh uses for apptainer.
-if ! command -v java >/dev/null 2>&1; then
-  _jbin="$(timeout 20 bash -c '
-    for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules; do
-      [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
-    done
-    if command -v module >/dev/null 2>&1; then
-      module load Java >/dev/null 2>&1 || true
-    fi
-    command -v java >/dev/null 2>&1 && dirname "$(readlink -f "$(command -v java)")"
-  ' 2>/dev/null || true)"
-  [[ -n "$_jbin" ]] && export PATH="${_jbin}:${PATH}"
-  unset _jbin
-fi
-if ! command -v java >/dev/null 2>&1; then
-  for j in /apps/USE/easybuild/release/*/software/Java/*/bin; do
-    [[ -x "$j/java" ]] && export PATH="${j}:${PATH}" && break
-  done
-fi
-command -v java >/dev/null || { echo "[fn_eval] FATAL: java not found (required by InterProScan)"; exit 1; }
-java -version 2>&1 | head -1 || true
+# --- Java for InterProScan (shared hang-safe discovery in common.sh) ---------
+ensure_java || { echo "[fn_eval] FATAL: no usable java"; exit 1; }
 
 # --- A. generation (dplm container, GPU) -------------------------------------
 GEN_ARGS=(
