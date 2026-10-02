@@ -258,6 +258,70 @@ ensure_java() {
   command -v java >/dev/null 2>&1 || { echo "[meluxina] ERROR: java not found (required by InterProScan)"; return 1; }
   java -version 2>&1 | head -1
 }
+
+# --- Eval-stack stage helpers -------------------------------------------------
+# Same stages as eval_pipeline.sbatch, callable from an interactive HOST shell
+# (interactive.sh evalsh). EVALDIR is repo-relative, e.g. eval_runs/fn_eval_v1.
+# Each stage skips already-completed outputs, so re-running is cheap.
+
+eval_generate() {
+  # eval_generate <evaldir> <ckpt> [extra generate_eval_set.py args...]
+  # e.g. sweep: eval_generate eval_runs/fn_eval_v1 <ckpt> --cfg-scale 2 --arms ours_cond
+  local evaldir="$1" ckpt="$2"
+  shift 2
+  run_in_container "$DPLM_PY" scripts/eval_function/generate_eval_set.py \
+    --ckpt "$ckpt" --out "$evaldir" \
+    --test-pkl eval/cfpgen_eval/test.pkl \
+    --go-mapping eval/cfpgen_eval/go_mapping.pkl \
+    --ipr-mapping eval/cfpgen_eval/ipr_mapping.pkl \
+    "$@"
+}
+
+eval_ips() {
+  # eval_ips <evaldir> <arm> [cpus]   — HOST side (java; slow on degenerate arms)
+  local evaldir="$1" arm="$2" cpus="${3:-${SLURM_CPUS_PER_TASK:-16}}"
+  [[ -s "$REPO_DIR/$evaldir/$arm/ips.tsv" ]] && { echo "[eval] $arm ips.tsv exists — skipping"; return 0; }
+  [[ -f "$REPO_DIR/$evaldir/$arm/aatype.fasta" ]] || { echo "[eval] $arm has no aatype.fasta"; return 1; }
+  "$REPO_DIR/eval/interproscan-5.78-109.0/interproscan.sh" \
+    -i "$REPO_DIR/$evaldir/$arm/aatype.fasta" -f TSV \
+    -o "$REPO_DIR/$evaldir/$arm/ips.tsv" -T "$REPO_DIR/$evaldir/$arm/ips_tmp" \
+    -goterms --disable-precalc -cpu "$cpus"
+}
+
+eval_dg() {
+  # eval_dg <evaldir> <arm>   — DeepGO-SE sandbox on GPU (container-relative
+  # paths assume EVALDIR sits directly under the repo root)
+  local evaldir="$1" arm="$2"
+  if compgen -G "$REPO_DIR/$evaldir/$arm/aatype_preds_*.tsv.gz" >/dev/null; then
+    echo "[eval] $arm preds exist — skipping"; return 0
+  fi
+  apptainer exec --cleanenv --nv \
+    --bind "$REPO_DIR/eval/deepgo2/data:/workspace/deepgo2/data" \
+    --bind "$REPO_DIR/eval/esm_torch_hub:/root/.cache/torch/hub/checkpoints" \
+    --bind "$REPO_DIR/$evaldir:/workspace/deepgo2/eval" \
+    "$REPO_DIR/eval/deepgose_sandbox" \
+    python predict.py -if "eval/$arm/aatype.fasta" -dr data -d cuda
+}
+
+eval_score() {
+  # eval_score <evaldir> <arm,arm,...>   — scorer one-shot in the dplm container
+  local evaldir="$1" arms="$2" arm
+  run_in_container "$DPLM_PY" -c "import sklearn, obonet" >/dev/null 2>&1 || {
+    echo "[eval] FATAL: sklearn/obonet unavailable in the container."
+    echo "[eval] On the LOGIN node run once:"
+    echo "  python3 -m pip install --target $REPO_DIR/eval/pylibs 'obonet==1.2.0'"
+    return 1
+  }
+  local -a args=(scripts/eval_function/score_function_eval.py
+                 --evaldir "$evaldir" --arms "$arms" --obo eval/go.obo)
+  local IFS=','
+  for arm in $arms; do
+    args+=(--ips-tsv "$arm=$evaldir/$arm/ips.tsv")
+    args+=("--deepgose-tsv=$arm=$evaldir/$arm/aatype_preds_*.tsv.gz")
+  done
+  run_in_container "$DPLM_PY" "${args[@]}"
+}
+
 # NOTE: --cleanenv + explicit PATH are required. Unlike Docker, Apptainer
 # propagates the HOST environment into the container, overriding the image's
 # ENV PATH — and the host PATH has no `python` (the image's interpreter is

@@ -221,15 +221,21 @@ SKIP_GENERATE=1 sbatch --export=ALL scripts/meluxina/eval_pipeline.sbatch  # re-
 Interactive variant (first-time debugging / poking at arms):
 
 ```bash
-scripts/meluxina/interactive.sh evalsh   # 1 GPU, qos=short, 4 h, host shell with java+apptainer ready
+scripts/meluxina/interactive.sh evalsh   # 1 GPU, qos=short, 4 h, HOST shell on the node,
+                                         # java + apptainer ready, stage helpers loaded
+# inside evalsh (every helper skips finished outputs):
+eval_generate eval_runs/fn_eval_v1 logs/cond_dplm2_650m_cfpgen/checkpoints/step_99999.0-loss_1.95.ckpt
+for a in ours_cond ours_null vanilla real; do eval_ips eval_runs/fn_eval_v1 $a; eval_dg eval_runs/fn_eval_v1 $a; done
+eval_score eval_runs/fn_eval_v1 ours_cond,ours_null,vanilla,real
 ```
 
-> **Why not `interactive.sh alloc` + `run_in_container_shell` for eval?** The
-> dplm container's bash is the image's own (ancient 4.4) and inside it there
-> is **no apptainer** (containers cannot nest) and **no java/IPS** — eval
-> tools must run in the **host** shell of the allocation. `evalsh` is that
-> host shell with everything pre-sourced; the dplm container stays one-shot
-> (`run_in_container ...`) for generation and scoring. The automated
+> **Two gotchas encoded here.** (1) Shells are placed on the compute node via
+> `srun --pty` — `salloc` alone would run the shell on the *login* node while
+> merely holding the allocation (no GPUs there). (2) The dplm container's
+> bash is the image's own (ancient 4.4) and inside it there is **no
+> apptainer** (containers cannot nest) and **no java/IPS** — eval tools must
+> run in the **host** shell of the allocation; the dplm container stays
+> one-shot (`run_in_container`) for generation and scoring. The automated
 > `eval_pipeline.sbatch` runs the identical sequence headlessly.
 - Budget under `qos=short` (6 h): generation is the fast part; **InterProScan
   on our degenerate arms can take ~25 min/arm** (PANTHER stage matches
