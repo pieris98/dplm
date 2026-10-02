@@ -62,7 +62,10 @@ case "${MODE}" in
   alloc)
     # HOST shell ON the compute node (common.sh pre-sourced). Exiting releases
     # the allocation.
-    BASHRC="${TMPDIR:-/tmp}/dplm_alloc_bashrc.$$"
+    # NOTE: the rcfile must live on the SHARED project FS — srun starts bash on
+    # the compute node, and a /tmp path from the login node does not exist
+    # there (bash silently skips a missing --rcfile → no banner, no helpers).
+    BASHRC="${ROOT_DIR}/.alloc_rc.$$"
     cat > "${BASHRC}" <<EOS
 source '${COMMON}'
 echo "[interactive] HOST shell on \$(hostname -s) — allocation alive (qos=${QOS}, ${TIME})."
@@ -74,6 +77,7 @@ echo '    one-off     : run_in_container <cmd...>'
 echo '    full checks : run_in_container "\${DPLM_PY}" /workspace/dplm/scripts/meluxina/checks.py'
 echo '  eval tools (host): ensure_java · eval_ips <evaldir> <arm> · eval_dg <evaldir> <arm>'
 echo '  exit        : release the allocation'
+rm -f "\${BASH_SOURCE[0]}"
 EOS
     exec srun --account="${ACCOUNT}" -p gpu --qos="${QOS}" \
       --gres="gpu:${GPUS}" -N1 --ntasks=1 --cpus-per-task=16 -t "${TIME}" \
@@ -84,7 +88,7 @@ EOS
     # wall, stage helpers from common.sh. The dplm container stays one-shot
     # (a container cannot run apptainer inside itself → no DeepGO-SE, no java).
     QOS="${QOS_EVAL:-short}"; GPUS=1; TIME="${TIME_EVAL:-04:00:00}"
-    BASHRC="${TMPDIR:-/tmp}/dplm_evalsh_bashrc.$$"
+    BASHRC="${ROOT_DIR}/.evalsh_rc.$$"   # shared FS — see the alloc note above
     cat > "${BASHRC}" <<EOS
 source '${COMMON}'
 ensure_java || echo "[interactive] WARN: java unavailable — eval_ips will fail"
@@ -103,6 +107,7 @@ echo '    for a in ours_cond ours_null vanilla real; do eval_ips eval_runs/fn_ev
 echo '    eval_score eval_runs/fn_eval_v1 ours_cond,ours_null,vanilla,real'
 echo '  (headless equivalent: sbatch scripts/meluxina/eval_pipeline.sbatch)'
 echo '  exit        : release the allocation'
+rm -f "\${BASH_SOURCE[0]}"
 EOS
     exec srun --account="${ACCOUNT}" -p gpu --qos="${QOS}" \
       --gres="gpu:${GPUS}" -N1 --ntasks=1 --cpus-per-task=16 --mem=48G -t "${TIME}" \
