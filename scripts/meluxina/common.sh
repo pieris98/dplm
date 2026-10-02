@@ -178,6 +178,22 @@ CONTAINER_ARGS=(
   --pwd /workspace/dplm
 )
 
+# Optional eval-stack binds (present only after the eval assets are synced to
+# this checkout): read-only predictor/asset inputs under eval/, writable
+# eval_runs/ output dir, and pure-python deps (obonet) pip-installed with
+# --target into eval/pylibs — PYTHONPATH keeps the image untouched, so this
+# works for both sandbox dirs and read-only SIFs. Guarded so training jobs on
+# checkouts without these dirs are unaffected.
+if [[ -d "${REPO_DIR}/eval" ]]; then
+  CONTAINER_ARGS+=(--bind "${REPO_DIR}/eval:/workspace/dplm/eval:ro")
+fi
+if [[ -d "${REPO_DIR}/eval_runs" ]]; then
+  CONTAINER_ARGS+=(--bind "${REPO_DIR}/eval_runs:/workspace/dplm/eval_runs")
+fi
+if [[ -d "${REPO_DIR}/eval/pylibs" ]]; then
+  CONTAINER_ARGS+=(--env PYTHONPATH="/workspace/dplm/eval/pylibs")
+fi
+
 run_in_container() {
   # Retry wrapper: unprivileged SIF mounts (squashfuse_ll) intermittently
   # come up in a bad state ("stat ... permission denied" / mount-hook FATAL

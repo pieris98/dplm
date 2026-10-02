@@ -194,6 +194,42 @@ apptainer exec --nv \
 
 ---
 
+## Function-eval pipeline (`eval_pipeline.sbatch`)
+
+One GPU job runs the whole chain: generation (dplm container) → InterProScan
+(host, Java) → DeepGO-SE (own sandbox, `--nv`) → scoring (dplm container).
+Login nodes disable user namespaces and don't carry modules into batch shells,
+so **all of it must run inside an allocation** — the sbatch handles that.
+
+```bash
+# One-time on the LOGIN node: pure-python deps for the scorer, kept OUT of the
+# image via PYTHONPATH (works with sandbox dirs and read-only SIFs alike):
+python3 -m pip install --target <repo>/eval/pylibs "obonet==1.2.0"
+
+# Full run (generation w=1 for 4 arms + CFG sweep 2/4/8 → IPS → DeepGO-SE → score):
+sbatch scripts/meluxina/eval_pipeline.sbatch
+
+# Variants:
+RUN_NAME=fn_eval_lora CKPT=logs/.../last.ckpt sbatch --export=ALL scripts/meluxina/eval_pipeline.sbatch
+SWEEP="" sbatch --export=ALL scripts/meluxina/eval_pipeline.sbatch      # no CFG sweep
+SKIP_GENERATE=1 sbatch --export=ALL scripts/meluxina/eval_pipeline.sbatch  # re-score existing FASTAs only
+```
+
+- Every stage **skips existing outputs** — a timed-out job is resumed by
+  resubmitting the same command.
+- Budget under `qos=short` (6 h): generation is the fast part; **InterProScan
+  on our degenerate arms can take ~25 min/arm** (PANTHER stage matches
+  thousands of HMMs on low-complexity sequences — slow, not hung). 7 arms +
+  sweep fits in ~4–5 h; drop the sweep if in a hurry.
+- Required asset layout under the repo checkout (see RESEARCH_STATE.md §4.3):
+  `eval/{interproscan-5.78-109.0, deepgo2/data, deepgose_sandbox, esm_torch_hub, go.obo, cfpgen_eval/{test.pkl,go_mapping.pkl,ipr_mapping.pkl}, pylibs/}`.
+- Results land in `eval_runs/<RUN_NAME>/results.{json,md}`; `common.sh`
+  auto-binds `eval/` (read-only), `eval_runs/` (writable) and adds
+  `eval/pylibs` to `PYTHONPATH` when those dirs exist — training jobs are
+  unaffected.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -207,3 +243,7 @@ apptainer exec --nv \
 | Code changes not picked up | `git pull` in `$PROJECT/dplm-repo` |
 | Read-only filesystem errors for logs | Expected inside the image; logs/wandb/gen go to the `$PROJECT` binds — submit via the sbatch scripts, which set them up |
 | `$PROJECT` quota exceeded | SIF (57G) + HF cache are the big items; `du -sh $PROJECT/*` |
+| Eval job: `FATAL: sklearn/obonet unavailable` | Run the login-node one-time `pip install --target eval/pylibs obonet==1.2.0` (see eval section above) |
+| Eval job: InterProScan "slow" (>10 min/arm) | Expected on our arms — PANTHER vs low-complexity sequences; watch `hmmscan`/`hmmsearch` processes, they are running |
+| Eval job: `apptainer: command not found` in a stage | Only the guarded discovery in `common.sh` runs at source time; the DeepGO-SE stage assumes it on PATH after that — if it still fails, export `APPTAINER_BIN=<easybuild bin dir>` |
+| Scorer GO columns missing in `results.md` | Check the `--obo` block didn't skip: `import obonet` must succeed (pylibs install above); check the glob matched the `aatype_preds_*.tsv.gz` files |
