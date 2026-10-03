@@ -267,6 +267,14 @@ ensure_java() {
 eval_generate() {
   # eval_generate <evaldir> <ckpt> [extra generate_eval_set.py args...]
   # e.g. sweep: eval_generate eval_runs/fn_eval_v1 <ckpt> --cfg-scale 2 --arms ours_cond
+  # NOTE: bash's `shift N` fails SILENTLY when fewer positionals exist, leaving
+  # "$@" intact — a missing <ckpt> would then re-append <evaldir> to the driver
+  # command as an unrecognized positional. Guard explicitly.
+  if [[ $# -lt 2 || -z "${1:-}" || -z "${2:-}" ]]; then
+    echo "usage: eval_generate <evaldir> <ckpt> [extra generate_eval_set.py args...]" >&2
+    echo "  e.g. eval_generate eval_runs/fn_eval_v1 logs/cond_dplm2_650m_cfpgen/checkpoints/step_99999.0-loss_1.95.ckpt" >&2
+    return 2
+  fi
   local evaldir="$1" ckpt="$2"
   shift 2
   run_in_container "$DPLM_PY" scripts/eval_function/generate_eval_set.py \
@@ -279,6 +287,10 @@ eval_generate() {
 
 eval_ips() {
   # eval_ips <evaldir> <arm> [cpus]   — HOST side (java; slow on degenerate arms)
+  if [[ $# -lt 2 || -z "${1:-}" || -z "${2:-}" ]]; then
+    echo "usage: eval_ips <evaldir> <arm> [cpus]" >&2
+    return 2
+  fi
   local evaldir="$1" arm="$2" cpus="${3:-${SLURM_CPUS_PER_TASK:-16}}"
   [[ -s "$REPO_DIR/$evaldir/$arm/ips.tsv" ]] && { echo "[eval] $arm ips.tsv exists — skipping"; return 0; }
   [[ -f "$REPO_DIR/$evaldir/$arm/aatype.fasta" ]] || { echo "[eval] $arm has no aatype.fasta"; return 1; }
@@ -291,6 +303,10 @@ eval_ips() {
 eval_dg() {
   # eval_dg <evaldir> <arm>   — DeepGO-SE sandbox on GPU (container-relative
   # paths assume EVALDIR sits directly under the repo root)
+  if [[ $# -lt 2 || -z "${1:-}" || -z "${2:-}" ]]; then
+    echo "usage: eval_dg <evaldir> <arm>" >&2
+    return 2
+  fi
   local evaldir="$1" arm="$2"
   if compgen -G "$REPO_DIR/$evaldir/$arm/aatype_preds_*.tsv.gz" >/dev/null; then
     echo "[eval] $arm preds exist — skipping"; return 0
@@ -305,6 +321,10 @@ eval_dg() {
 
 eval_score() {
   # eval_score <evaldir> <arm,arm,...>   — scorer one-shot in the dplm container
+  if [[ $# -lt 2 || -z "${1:-}" || -z "${2:-}" ]]; then
+    echo "usage: eval_score <evaldir> <arm,arm,...>" >&2
+    return 2
+  fi
   local evaldir="$1" arms="$2" arm
   run_in_container "$DPLM_PY" -c "import sklearn, obonet" >/dev/null 2>&1 || {
     echo "[eval] FATAL: sklearn/obonet unavailable in the container."
