@@ -33,7 +33,7 @@ All under [scripts/eval_function/](scripts/eval_function/) + [src/byprot/eval/](
 
 ### 1.4 HPC infrastructure
 
-[scripts/meluxina/](scripts/meluxina/) — containerized SLURM training/generation on Meluxina (Apptainer sandbox dir, bind-mount strategy, QOS handling). Read [MELUXINA_RUNBOOK.md](scripts/meluxina/MELUXINA_RUNBOOK.md) before touching it. Non-git eval assets placement commands were delivered 2026-09-29 (in chat; summary in §4.3) and are **not yet executed**.
+[scripts/meluxina/](scripts/meluxina/) — containerized SLURM training/generation on Meluxina (Apptainer sandbox dir, bind-mount strategy, QOS handling). Read [MELUXINA_RUNBOOK.md](scripts/meluxina/MELUXINA_RUNBOOK.md) before touching it. **Meluxina access ended 2026-10-02** — the active cluster is now Karolina (IT4I): [scripts/karolina/](scripts/karolina/) holds the port (`setup_data.sh`, chained 12-h training on `qgpu_big` with auto-resume/self-resubmit, eval pipeline, interactive evalsh) — see [KAROLINA_RUNBOOK.md](scripts/karolina/KAROLINA_RUNBOOK.md). `common.sh` (in meluxina/) is the shared cluster-agnostic launcher both trees source.
 
 ---
 

@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Shared launcher library for Meluxina conditional-DPLM2 jobs.
+# Shared launcher library for conditional-DPLM2 HPC jobs.
+#
+# Despite the directory name, this is CLUSTER-SHARED: sourced by the sbatch /
+# interactive scripts under scripts/meluxina/ AND scripts/karolina/. All
+# cluster specifics are behind env overrides (DPLM_BASE, DPLM_SIF,
+# APPTAINER_BIN, …) and guarded auto-discovery.
 #
 # Sourced by the sbatch scripts. Responsibilities:
 #   1. Locate the Apptainer SIF (pulled once from Docker Hub).
@@ -28,11 +33,11 @@ if ! command -v apptainer >/dev/null 2>&1; then
     export PATH="${APPTAINER_BIN}:${PATH}"
   else
     _resolved_path="$(timeout 20 bash -c '
-      for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules; do
+      for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules /usr/share/lmod/lmod/init/bash; do
         [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
       done
       if command -v module >/dev/null 2>&1; then
-        module load Apptainer >/dev/null 2>&1 || true
+        module load Apptainer >/dev/null 2>&1 || module load Singularity >/dev/null 2>&1 || true
       fi
       command -v apptainer >/dev/null 2>&1 && printf "%s" "$PATH"
     ' 2>/dev/null || true)"
@@ -239,7 +244,7 @@ ensure_java() {
   command -v java >/dev/null 2>&1 && { java -version 2>&1 | head -1; return 0; }
   local _jbin
   _jbin="$(timeout 20 bash -c '
-    for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules; do
+    for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules /usr/share/lmod/lmod/init/bash; do
       [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
     done
     if command -v module >/dev/null 2>&1; then
