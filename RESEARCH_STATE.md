@@ -101,7 +101,7 @@ All under [scripts/eval_function/](scripts/eval_function/) + [src/byprot/eval/](
 | Issue | Mitigation (permanent, committed) |
 |---|---|
 | EBI FTP refused all connections (no IPS 6, no direct downloads) | IPS **5.78-109.0 GitHub release tarball** (bundles all member DBs); local install at `eval/interproscan-5.78-109.0/` |
-| DeepGO-SE `data.tar.gz` KAUST link dead (only data source) | Full dataset recovered via **web archive** (16 GB, `eval/deepgo2/data/`); runner = docker `coolmaksat/deepgose`; issue filed upstream |
+| DeepGO-SE `data.tar.gz` KAUST link dead (only data source) | Full dataset recovered via **web archive** (16 GB, `eval/deepgo2/data/`); runner = docker `coolmaksat/deepgose`; issue filed upstream. (2026-10: live mirror found at `https://bio2vec.net/data/deepgo/deepgo2/data.tar.gz` — the Karolina setup downloads from it directly, no rsync needed) |
 | Scorer compared prompt label **ints** vs predictor **accessions** → F1=0 incl. positive control | Convert GT via manifest `label_map` inverse maps; positive control now 0.978 (the bug was caught *by* the control) |
 | GO GT never ancestor-expanded — `obonet` missing and `import obonet` sits inside the `--obo` block, so the scorer **silently skipped** expansion (all-zeros GO columns) | Installed `obonet` (pinned in `docker/dplm-pip-freeze.txt`); re-scored with `--obo`; verified expansion + node-attr `is_a` extraction on the real ontology. **Lesson: guard against silently-skipped optional stages** |
 | DeepGO-SE output `.tsv` files contained only progress spam | It writes **gzipped per-branch TSVs** (`aatype_preds_{mf,bp,cc}.tsv.gz`) next to the input; parser globs those |

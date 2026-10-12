@@ -40,12 +40,12 @@ Idempotent; does: dplm sandbox (`docker://pieris98/dplm:cu121-torch220-cond`,
 and openfold's compiled kernels, so no other model/data downloads are needed),
 deepgose sandbox, ESM-2 3B torch-hub cache (5.7 GB), InterProScan 5.78 tarball
 + extraction + a validation run, `go.obo`, `eval/pylibs` (obonet for the
-scorer). Then it prints the **two rsync TODOs** that only exist locally:
+scorer), and the **DeepGO-SE model data** (downloaded from the bio2vec.net
+mirror: `https://bio2vec.net/data/deepgo/deepgo2/data.tar.gz`). Then it prints
+the **one rsync TODO** that exists only locally:
 
 ```bash
 # from the LOCAL workstation:
-rsync -avP /home/cherry/dev/phd/dplm/eval/deepgo2/data/ \
-  <user>@karolina.it4i.cz:/scratch/project/$ACCOUNT/dplm-repo/eval/deepgo2/data/   # 16 GB
 rsync -avP /home/cherry/dev/phd/cfpgen/data-bin/uniprotKB/cfpgen_general_dataset/test.pkl \
            /home/cherry/dev/phd/cfpgen/go_mapping.pkl \
            /home/cherry/dev/phd/cfpgen/ipr_mapping.pkl \

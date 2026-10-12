@@ -102,8 +102,33 @@ else
   python3 -m pip install --target "$ROOT_DIR/eval/pylibs" "obonet==1.2.0"
 fi
 
-# --- 7. assets that must come from the local workstation ---------------------
-step "7. rsync-only assets (checked, not downloaded)"
+# --- 7. DeepGO-SE model data (bio2vec.net mirror; the old KAUST link rotted) -
+step "7. deepgo2 data"
+if compgen -G "$ROOT_DIR/eval/deepgo2/data/mf/deepgozero_esm_plus_*.th" >/dev/null; then
+  echo "OK: deepgo2/data (model weights present)"
+else
+  need_cmd wget; need_cmd tar
+  DG_URL="${DG_DATA_URL:-https://bio2vec.net/data/deepgo/deepgo2/data.tar.gz}"
+  echo "downloading $DG_URL (several GB; wget -c resumes if interrupted)"
+  mkdir -p "$ROOT_DIR/eval/deepgo2"
+  wget -c -O "$ROOT_DIR/eval/deepgo2/data.tar.gz.part" "$DG_URL" &&
+    mv "$ROOT_DIR/eval/deepgo2/data.tar.gz.part" "$ROOT_DIR/eval/deepgo2/data.tar.gz"
+  tar -xzf "$ROOT_DIR/eval/deepgo2/data.tar.gz" -C "$ROOT_DIR/eval/deepgo2/"
+  # normalize a nested data/data layout, if the archive has one
+  if [[ ! -d "$ROOT_DIR/eval/deepgo2/data" && -d "$ROOT_DIR/eval/deepgo2/data/data" ]]; then
+    mv "$ROOT_DIR/eval/deepgo2/data" "$ROOT_DIR/eval/deepgo2/data.tmp"
+    mv "$ROOT_DIR/eval/deepgo2/data.tmp/data" "$ROOT_DIR/eval/deepgo2/data"
+    rmdir "$ROOT_DIR/eval/deepgo2/data.tmp" 2>/dev/null || true
+  fi
+  if compgen -G "$ROOT_DIR/eval/deepgo2/data/mf/deepgozero_esm_plus_*.th" >/dev/null; then
+    echo "weights OK — archive can be deleted: rm $ROOT_DIR/eval/deepgo2/data.tar.gz"
+  else
+    echo "WARN: weights not found after extraction — inspect $ROOT_DIR/eval/deepgo2/"
+  fi
+fi
+
+# --- 8. asset that must come from the local workstation ----------------------
+step "8. cfpgen_eval (checked, not downloadable)"
 missing=0
 if [[ -f "$ROOT_DIR/eval/cfpgen_eval/test.pkl" ]]; then echo "OK: cfpgen_eval (test.pkl + mappings)"
 else
@@ -118,15 +143,5 @@ TODO — from the LOCAL workstation (14 MB):
     <user>@karolina.it4i.cz:/scratch/project/<ACCOUNT>/dplm-repo/eval/cfpgen_eval/
 EOS
 fi
-if compgen -G "$ROOT_DIR/eval/deepgo2/data/mf/deepgozero_esm_plus_*.th" >/dev/null; then
-  echo "OK: deepgo2/data (DeepGO-SE model weights)"
-else
-  missing=1
-  cat <<'EOS'
-TODO — from the LOCAL workstation (16 GB, web-archive recovery; cannot re-download):
-  rsync -avP /home/cherry/dev/phd/dplm/eval/deepgo2/data/ \
-    <user>@karolina.it4i.cz:/scratch/project/<ACCOUNT>/dplm-repo/eval/deepgo2/data/
-EOS
-fi
 [[ $missing -eq 0 ]] && echo -e "\n[setup] COMPLETE — ready to sbatch training + eval" \
-                    || echo -e "\n[setup] Done except rsync TODOs above."
+                    || echo -e "\n[setup] Done except the rsync TODO above."
