@@ -33,24 +33,48 @@ step() { echo -e "\n=== $* ==="; }
 need_cmd() { command -v "$1" >/dev/null || { echo "FATAL: '$1' not found — module load first?"; exit 1; }; }
 
 # --- 1. dplm sandbox (training/generation/scoring image; ~57 GB) -------------
+# A killed/aborted build can leave a PARTIAL sandbox that a naive existence
+# check would trust (symptom: truncated-stdlib SyntaxErrors inside the
+# container). Therefore: build to a staging dir, move into place only on
+# success, and health-check any pre-existing sandbox before skipping.
 step "1. dplm sandbox"
-if [[ -d "$DPLM_BASE/dplm_sandbox" ]]; then
-  echo "exists: $DPLM_BASE/dplm_sandbox — skipping"
-else
+dplm_sandbox_ok() {
+  apptainer exec "$1" /opt/venv/bin/python -c "import codecs, bisect, json, encodings" >/dev/null 2>&1
+}
+if [[ -d "$DPLM_BASE/dplm_sandbox" ]] && ! dplm_sandbox_ok "$DPLM_BASE/dplm_sandbox"; then
+  echo "EXISTS BUT CORRUPT (stdlib import fails — aborted build?); rebuilding"
+  rm -rf "$DPLM_BASE/dplm_sandbox"
+fi
+if [[ ! -d "$DPLM_BASE/dplm_sandbox" ]]; then
   need_cmd apptainer
   echo "building from docker://pieris98/dplm:cu121-torch220-cond (~15-30 min)"
-  apptainer build --sandbox "$DPLM_BASE/dplm_sandbox" docker://pieris98/dplm:cu121-torch220-cond
+  rm -rf "$DPLM_BASE/.dplm_sandbox.staging"
+  apptainer build --sandbox "$DPLM_BASE/.dplm_sandbox.staging" docker://pieris98/dplm:cu121-torch220-cond
+  mv "$DPLM_BASE/.dplm_sandbox.staging" "$DPLM_BASE/dplm_sandbox"
 fi
+dplm_sandbox_ok "$DPLM_BASE/dplm_sandbox" \
+  || { echo "FATAL: freshly built dplm_sandbox fails the import check"; exit 1; }
+echo "dplm_sandbox healthy"
 
 # --- 2. deepgose sandbox (DeepGO-SE predict env; ~12 GB) ---------------------
 step "2. deepgose sandbox"
-if [[ -e "$ROOT_DIR/eval/deepgose_sandbox" ]]; then
-  echo "exists: $ROOT_DIR/eval/deepgose_sandbox — skipping"
-else
+deepgose_ok() {
+  apptainer exec "$1" python -c "import click, Bio" >/dev/null 2>&1
+}
+if [[ -e "$ROOT_DIR/eval/deepgose_sandbox" ]] && ! deepgose_ok "$ROOT_DIR/eval/deepgose_sandbox"; then
+  echo "EXISTS BUT CORRUPT; rebuilding"
+  rm -rf "$ROOT_DIR/eval/deepgose_sandbox"
+fi
+if [[ ! -e "$ROOT_DIR/eval/deepgose_sandbox" ]]; then
   need_cmd apptainer
   mkdir -p "$ROOT_DIR/eval"
-  apptainer build --sandbox "$ROOT_DIR/eval/deepgose_sandbox" docker://coolmaksat/deepgose
+  rm -rf "$ROOT_DIR/eval/.deepgose_sandbox.staging"
+  apptainer build --sandbox "$ROOT_DIR/eval/.deepgose_sandbox.staging" docker://coolmaksat/deepgose
+  mv "$ROOT_DIR/eval/.deepgose_sandbox.staging" "$ROOT_DIR/eval/deepgose_sandbox"
 fi
+deepgose_ok "$ROOT_DIR/eval/deepgose_sandbox" \
+  || { echo "FATAL: deepgose_sandbox fails the import check"; exit 1; }
+echo "deepgose_sandbox healthy"
 
 # --- 3. ESM-2 3B torch-hub cache (5.7 GB; DeepGO-SE runtime dep) -------------
 # NOTE: the contact-regression weights live under /fair-esm/regression/, NOT

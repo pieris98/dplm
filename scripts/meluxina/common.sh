@@ -153,6 +153,12 @@ export MASTER_ADDR="${MASTER_ADDR:-$(hostname)}"
 export MASTER_PORT="${MASTER_PORT:-29500}"
 
 # --- The launcher -----------------------------------------------------------
+# Karolina's module environment exports SINGULARITYENV_LD_PRELOAD, which
+# injects HOST libraries into every container process — an ABI-mismatch risk
+# for the image's python/torch. Our env forwarding is done via --env flags,
+# so drop the legacy-injection vars before exec.
+unset SINGULARITYENV_LD_PRELOAD SINGULARITYENV_PYTHONPATH 2>/dev/null || true
+
 # One argument array shared by exec AND interactive shell, so the manual /
 # interactive path is guaranteed identical to the sbatch path.
 CONTAINER_ARGS=(
