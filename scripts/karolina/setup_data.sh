@@ -87,13 +87,24 @@ else
 fi
 # small validate run (bundled test proteins) — takes a few minutes
 if [[ ! -f "$ROOT_DIR/eval/.ips_validated" ]]; then
-  echo "validating IPS on its bundled test FASTA (few minutes; needs java — ensure_java)"
-  ( source "$ROOT_DIR/scripts/meluxina/common.sh" && ensure_java ) || true
+  echo "validating IPS (prefers a Java 11 module — IPS 5.78 wants 11; 17 can break member DBs)"
+  # Prefer Java/11 over whatever plain `module load Java` gives (17 on Karolina).
+  bash -c '
+    for init in /usr/share/lmod/lmod/init/bash /etc/profile.d/modules.sh /usr/share/modules/init/bash; do
+      [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
+    done
+    if command -v module >/dev/null 2>&1; then
+      module load Java/11 >/dev/null 2>&1 || module load Java >/dev/null 2>&1 || true
+    fi
+    java -version 2>&1 | head -1
+  ' || true
   ( cd "$ROOT_DIR/eval/interproscan-5.78-109.0" && \
-    ./interproscan.sh -i core/test_all_proteins/test_all_proteins.fasta \
+    TEST_FA="core/test_all_proteins/test_all_proteins.fasta"; \
+    [[ -f "$TEST_FA" ]] || TEST_FA="$(find . -maxdepth 3 -path '*test*' -name '*.fasta' | head -1)"; \
+    ./interproscan.sh -i "$TEST_FA" \
       -f TSV -o /tmp/ips_validate.tsv --disable-precalc -cpu 4 >/tmp/ips_validate.log 2>&1 ) \
     && touch "$ROOT_DIR/eval/.ips_validated" \
-    || echo "WARN: IPS validation failed — check /tmp/ips_validate.log (java missing is the usual cause)"
+    || { echo "WARN: IPS validation failed — last log lines:"; tail -15 /tmp/ips_validate.log; }
 fi
 
 # --- 5. go.obo (GO DAG for ancestor-expanded scoring) ------------------------
@@ -103,11 +114,23 @@ if [[ -s "$ROOT_DIR/eval/go.obo" ]]; then echo "exists"; else
 fi
 
 # --- 6. scorer pure-python deps (obonet via PYTHONPATH — keeps image intact) -
+# Karolina's default python3 is 3.6 — too old for obonet 1.2 (pip on 3.6 only
+# sees obonet <=0.3.0). Use python3.9 DELIBERATELY: it matches the sandbox's
+# /opt/venv python, so pip resolves wheels (networkx!) that are importable
+# inside the py3.9 container via PYTHONPATH. A 3.12 pip would pull networkx
+# >=3.4 (py>=3.10 wheels) and break the container-side import.
 step "6. eval/pylibs (obonet)"
-if python3 -c "import sys; sys.path.insert(0, '$ROOT_DIR/eval/pylibs'); import obonet" 2>/dev/null; then
+PY_SETUP="$(command -v python3.9 || command -v python3.11 || command -v python3.12 || command -v python3)"
+echo "using host python: $PY_SETUP ($("$PY_SETUP" -V 2>&1))"
+if "$PY_SETUP" -c "import sys; sys.path.insert(0, '$ROOT_DIR/eval/pylibs'); import obonet" 2>/dev/null; then
   echo "exists"
+elif "$PY_SETUP" -m pip install --target "$ROOT_DIR/eval/pylibs" "obonet==1.2.0"; then
+  "$PY_SETUP" -c "import sys; sys.path.insert(0, '$ROOT_DIR/eval/pylibs'); import obonet; print('obonet import OK')"
 else
-  python3 -m pip install --target "$ROOT_DIR/eval/pylibs" "obonet==1.2.0"
+  echo "pip module missing? trying ensurepip, then a bare pip-3.9 fallback"
+  "$PY_SETUP" -m ensurepip 2>/dev/null || true
+  "$PY_SETUP" -m pip install --target "$ROOT_DIR/eval/pylibs" "obonet==1.2.0" \
+    || pip3.9 install --target "$ROOT_DIR/eval/pylibs" "obonet==1.2.0"
 fi
 
 # --- 7. DeepGO-SE model data (bio2vec.net mirror; the old KAUST link rotted) -
