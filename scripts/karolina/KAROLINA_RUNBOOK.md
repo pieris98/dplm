@@ -21,6 +21,9 @@ Migration target after Meluxina access ended. IT4I Karolina: 72 GPU nodes ×
 ssh <user>@karolina.it4i.cz                     # IT4I account + active project with GPU allocation
 export ACCOUNT=OPEN-XX-XX                       # your project id
 export DPLM_BASE=/scratch/project/$ACCOUNT      # everything big lives here
+# keep apptainer's layer cache OFF home (25 GB quota):
+export APPTAINER_CACHEDIR=$DPLM_BASE/apptainer_cache
+export APPTAINER_TMPDIR=$DPLM_BASE/apptainer_tmp
 git clone <your-remote>/dplm.git /scratch/project/$ACCOUNT/dplm-repo
 cd /scratch/project/$ACCOUNT/dplm-repo && git checkout main
 # (or rsync the working tree from the local machine, excluding logs/, eval_runs/, outputs/, work/)
@@ -101,6 +104,7 @@ scripts/karolina/interactive.sh alloc       # whole node for training debugging
 
 | Symptom | Fix |
 |---|---|
+| **`disk quota exceeded` during an apptainer build/pull** | Apptainer caches docker layers in `~/.apptainer/cache` (HOME = 25 GB; the dplm image's layers are ~20–30 GB). Free it: `rm -rf ~/.apptainer/cache ~/.singularity/cache`, then point cache+temp at scratch — `export APPTAINER_CACHEDIR=$DPLM_BASE/apptainer_cache APPTAINER_TMPDIR=$DPLM_BASE/apptainer_tmp` — and retry (`setup_data.sh` now does this itself) |
 | `sbatch: error: Invalid account or partition` | wrong `ACCOUNT` or no GPU allocation left on the project |
 | apptainer oddities (mount/exec flakes) | `ml -f XALT` in that shell, retry; sandbox dirs (not SIF) are the preferred image format here too |
 | Training job ends at 12 h without resubmit | check `.err`/`.out` for the resubmit lines; resubmit manually — it auto-resumes from the newest ckpt |

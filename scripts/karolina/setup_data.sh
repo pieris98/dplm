@@ -20,6 +20,15 @@ mkdir -p "$DPLM_BASE"
 echo "[setup] base: $DPLM_BASE"
 echo "[setup] repo: $ROOT_DIR"
 
+# Apptainer's docker-layer cache defaults to ~/.apptainer/cache — on Karolina
+# HOME has a 25 GB quota and the dplm image's layers alone are ~20-30 GB, so
+# any build dies with "disk quota exceeded". Point cache + temp at scratch.
+export APPTAINER_CACHEDIR="${APPTAINER_CACHEDIR:-$DPLM_BASE/apptainer_cache}"
+export SINGULARITY_CACHEDIR="${SINGULARITY_CACHEDIR:-$APPTAINER_CACHEDIR}"  # legacy name
+export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-$DPLM_BASE/apptainer_tmp}"
+mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
+echo "[setup] apptainer cache/tmp: $APPTAINER_CACHEDIR / $APPTAINER_TMPDIR (scratch)"
+
 step() { echo -e "\n=== $* ==="; }
 need_cmd() { command -v "$1" >/dev/null || { echo "FATAL: '$1' not found — module load first?"; exit 1; }; }
 
