@@ -53,27 +53,35 @@ else
 fi
 
 # --- 3. ESM-2 3B torch-hub cache (5.7 GB; DeepGO-SE runtime dep) -------------
+# NOTE: the contact-regression weights live under /fair-esm/regression/, NOT
+# /fair-esm/models/ (the models/ path 403s).
 step "3. ESM-2 3B cache"
 mkdir -p "$ROOT_DIR/eval/esm_torch_hub"
-for f in esm2_t36_3B_UR50D.pt esm2_t36_3B_UR50D-contact-regression.pt; do
-  if [[ -s "$ROOT_DIR/eval/esm_torch_hub/$f" ]]; then
-    echo "exists: $f"
-  else
-    wget -c -O "$ROOT_DIR/eval/esm_torch_hub/$f.part" \
-      "https://dl.fbaipublicfiles.com/fair-esm/models/$f" &&
-      mv "$ROOT_DIR/eval/esm_torch_hub/$f.part" "$ROOT_DIR/eval/esm_torch_hub/$f"
-  fi
-done
+esm_fetch() {  # <filename> <url>
+  local f="$1" url="$2"
+  if [[ -s "$ROOT_DIR/eval/esm_torch_hub/$f" ]]; then echo "exists: $f"; return 0; fi
+  wget -c -O "$ROOT_DIR/eval/esm_torch_hub/$f.part" "$url" &&
+    mv "$ROOT_DIR/eval/esm_torch_hub/$f.part" "$ROOT_DIR/eval/esm_torch_hub/$f"
+}
+esm_fetch esm2_t36_3B_UR50D.pt \
+  "https://dl.fbaipublicfiles.com/fair-esm/models/esm2_t36_3B_UR50D.pt"
+esm_fetch esm2_t36_3B_UR50D-contact-regression.pt \
+  "https://dl.fbaipublicfiles.com/fair-esm/regression/esm2_t36_3B_UR50D-contact-regression.pt"
 
-# --- 4. InterProScan 5.78-109.0 (GitHub tarball; EBI FTP is blocked) ---------
+# --- 4. InterProScan 5.78-109.0 ---------------------------------------------
+# The GitHub release carries NO tarball asset; its notes point to EBI's HTTPS
+# host (2026-10: reachable — the earlier Meluxina-era block is gone).
 step "4. InterProScan 5.78-109.0"
 if [[ -x "$ROOT_DIR/eval/interproscan-5.78-109.0/interproscan.sh" ]]; then
   echo "exists — skipping"
 else
-  IPS_URL="${IPS_URL:-https://github.com/ebi-pf-team/interproscan/releases/download/5.78-109.0/interproscan-5.78-109.0.tar.gz}"
+  IPS_URL="${IPS_URL:-https://ftp.ebi.ac.uk/pub/software/unix/iprscan/5/5.78-109.0/interproscan-5.78-109.0-64-bit.tar.gz}"
+  IPS_MD5="${IPS_MD5:-3bb9a0794e9d69a0418a5298cdb04445}"   # from the release notes
   need_cmd wget; need_cmd tar
-  echo "downloading ~6.6 GB from GitHub, then extracting (~35 GB)"
+  echo "downloading ~6.6 GB from EBI (HTTPS), md5-verifying, extracting (~35 GB)"
   wget -c -O /tmp/ips578.tar.gz "$IPS_URL"
+  echo "$IPS_MD5  /tmp/ips578.tar.gz" | md5sum -c - || {
+    echo "FATAL: md5 mismatch — download corrupted"; exit 1; }
   tar -xzf /tmp/ips578.tar.gz -C "$ROOT_DIR/eval/"
   rm -f /tmp/ips578.tar.gz
 fi
