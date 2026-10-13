@@ -109,27 +109,49 @@ else
   tar -xzf /tmp/ips578.tar.gz -C "$ROOT_DIR/eval/"
   rm -f /tmp/ips578.tar.gz
 fi
-# small validate run (bundled test proteins) — takes a few minutes
+# small validate run — takes a few minutes on first run (member DB setup)
 if [[ ! -f "$ROOT_DIR/eval/.ips_validated" ]]; then
-  echo "validating IPS (Java 11 in the SAME shell as the IPS run — a module"
-  echo "  load in one subshell does not carry into another)"
-  IPS_DIR="$ROOT_DIR/eval/interproscan-5.78-109.0" \
-  bash -c '
+  IPS_DIR="$ROOT_DIR/eval/interproscan-5.78-109.0"
+  # Pick a test input, with visible preconditions on THIS shell:
+  #   1. the bundled canonical test FASTA
+  #   2. any bundled *test*.fasta
+  #   3. a builtin known-protein control (human ubiquitin — must annotate)
+  TEST_FA="$( cd "$IPS_DIR" 2>/dev/null && {
+    fa="core/test_all_proteins/test_all_proteins.fasta"
+    [[ -f "$fa" ]] || fa="$(find . -maxdepth 3 -path '*test*' -name '*.fasta' 2>/dev/null | head -1 || true)"
+    [[ -n "$fa" ]] && echo "$fa"
+  } )"
+  if [[ -z "${TEST_FA:-}" ]]; then
+    printf '>ubq_known human ubiquitin (validation control)\nMQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG\n' \
+      > /tmp/ips_validate_input.fasta
+    TEST_FA=/tmp/ips_validate_input.fasta
+    echo "[ips-validate] no bundled test FASTA found — using builtin ubiquitin control"
+  fi
+  echo "[ips-validate] input: $TEST_FA"
+  echo "[ips-validate] log:   /tmp/ips_validate.log  (live: tail -f in another shell)"
+  IPS_DIR="$IPS_DIR" TEST_FA="$TEST_FA" bash -c '
     for init in /usr/share/lmod/lmod/init/bash /etc/profile.d/modules.sh /usr/share/modules/init/bash; do
       [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
     done
     if command -v module >/dev/null 2>&1; then
       module load Java/11 >/dev/null 2>&1 || module load Java >/dev/null 2>&1 || true
     fi
-    java -version 2>&1 | head -1
+    echo "java: $(java -version 2>&1 | head -1)"
     cd "$IPS_DIR" || exit 1
-    TEST_FA="core/test_all_proteins/test_all_proteins.fasta"
-    [[ -f "$TEST_FA" ]] || TEST_FA="$(find . -maxdepth 3 -path "*test*" -name "*.fasta" | head -1)"
     ./interproscan.sh -i "$TEST_FA" \
       -f TSV -o /tmp/ips_validate.tsv --disable-precalc -cpu 4
-  ' >/tmp/ips_validate.log 2>&1 \
-    && touch "$ROOT_DIR/eval/.ips_validated" \
-    || { echo "WARN: IPS validation failed — last log lines:"; tail -15 /tmp/ips_validate.log; }
+  ' >/tmp/ips_validate.log 2>&1
+  IPS_RC=$?
+  echo "[ips-validate] exit code: $IPS_RC"
+  if (( IPS_RC == 0 )) && [[ -s /tmp/ips_validate.tsv ]] && grep -q "IPR" /tmp/ips_validate.tsv; then
+    touch "$ROOT_DIR/eval/.ips_validated"
+    echo "[ips-validate] PASSED — IPS ran and annotated the control (≥1 InterPro match)"
+  else
+    echo "WARN: IPS validation FAILED — last 40 lines of /tmp/ips_validate.log:"
+    tail -40 /tmp/ips_validate.log
+    echo "(a run that completes but annotates nothing = broken member DBs;"
+    echo " 'Java not found' = the module load did not reach interproscan.sh)"
+  fi
 fi
 
 # --- 5. go.obo (GO DAG for ancestor-expanded scoring) ------------------------
