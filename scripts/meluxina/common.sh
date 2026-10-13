@@ -254,7 +254,7 @@ ensure_java() {
       [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
     done
     if command -v module >/dev/null 2>&1; then
-      module load Java >/dev/null 2>&1 || true
+      module load Java/11 >/dev/null 2>&1 || module load Java >/dev/null 2>&1 || true
     fi
     command -v java >/dev/null 2>&1 && dirname "$(readlink -f "$(command -v java)")"
   ' 2>/dev/null || true)"
