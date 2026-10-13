@@ -44,8 +44,11 @@ need_cmd() { command -v "$1" >/dev/null || { echo "FATAL: '$1' not found — mod
 # container). Therefore: build to a staging dir, move into place only on
 # success, and health-check any pre-existing sandbox before skipping.
 step "1. dplm sandbox"
+# Health check deliberately imports torch: it reads thousands of files, so it
+# catches truncated/flaky sandbox reads that small stdlib imports can miss
+# (observed on Karolina compute nodes: moving SyntaxErrors across attempts).
 dplm_sandbox_ok() {
-  apptainer exec "$1" /opt/venv/bin/python -c "import codecs, bisect, json, encodings" >/dev/null 2>&1
+  apptainer exec "$1" /opt/venv/bin/python -c "import codecs, bisect, json, encodings, numpy, torch" >/dev/null 2>&1
 }
 if [[ -d "$DPLM_BASE/dplm_sandbox" ]] && ! dplm_sandbox_ok "$DPLM_BASE/dplm_sandbox"; then
   echo "EXISTS BUT CORRUPT (stdlib import fails — aborted build?); rebuilding"
