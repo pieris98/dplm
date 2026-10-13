@@ -57,6 +57,7 @@ echo "[fn_eval] run=$RUN_NAME ckpt=$CKPT arms=($ARMS_ALL)"
 
 # --- Java for InterProScan (shared hang-safe discovery in common.sh) ---------
 ensure_java || { echo "[fn_eval] FATAL: no usable java"; exit 1; }
+ensure_ips_python || echo "[fn_eval] WARN: no python2 shim — the MobiDB step will fail"
 
 # --- A. generation (dplm sandbox, GPU) ---------------------------------------
 GEN_ARGS=(

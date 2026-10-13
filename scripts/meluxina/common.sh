@@ -270,6 +270,30 @@ ensure_java() {
   java -version 2>&1 | head -1
 }
 
+# InterProScan's MobiDB-lite step is a Python 2 script invoked via a bare
+# `python` command. EL8 hosts (Karolina) have no `python` binary — only
+# python2.7/python3* — so the step dies with "Run mobi-db Binary ... has
+# failed irretrievably". Create a python→python2.7 shim once under
+# eval/ips_bin and prepend it to PATH wherever IPS runs.
+ensure_ips_python() {
+  local shim_dir="${REPO_DIR}/eval/ips_bin"
+  if [[ ! -x "$shim_dir/python" ]]; then
+    local py2=""
+    for c in python2.7 python2 python2.6; do
+      if command -v "$c" >/dev/null 2>&1; then py2="$(command -v "$c")"; break; fi
+      if [[ -x "/usr/bin/$c" ]]; then py2="/usr/bin/$c"; break; fi
+    done
+    if [[ -z "$py2" ]]; then
+      echo "[meluxina] WARN: no python2 on this host — IPS MobiDB step will fail"
+      return 1
+    fi
+    mkdir -p "$shim_dir"
+    ln -sf "$py2" "$shim_dir/python"
+    echo "[meluxina] ips_bin shim: python -> $py2"
+  fi
+  export PATH="$shim_dir:$PATH"
+}
+
 # --- Eval-stack stage helpers -------------------------------------------------
 # Same stages as eval_pipeline.sbatch, callable from an interactive HOST shell
 # (interactive.sh evalsh). EVALDIR is repo-relative, e.g. eval_runs/fn_eval_v1.
@@ -302,6 +326,8 @@ eval_ips() {
     echo "usage: eval_ips <evaldir> <arm> [cpus]" >&2
     return 2
   fi
+  ensure_java || return 1
+  ensure_ips_python || true   # MobiDB-lite needs a `python` (2.7) shim
   local evaldir="$1" arm="$2" cpus="${3:-${SLURM_CPUS_PER_TASK:-16}}"
   [[ -s "$REPO_DIR/$evaldir/$arm/ips.tsv" ]] && { echo "[eval] $arm ips.tsv exists — skipping"; return 0; }
   [[ -f "$REPO_DIR/$evaldir/$arm/aatype.fasta" ]] || { echo "[eval] $arm has no aatype.fasta"; return 1; }

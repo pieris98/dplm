@@ -20,6 +20,12 @@ mkdir -p "$DPLM_BASE"
 echo "[setup] base: $DPLM_BASE"
 echo "[setup] repo: $ROOT_DIR"
 
+# Shared launcher helpers (ensure_java / ensure_ips_python / ...). The sandbox
+# existence check inside common.sh would be fatal here — point it at the real
+# one (step 1 validates it properly itself).
+export DPLM_SIF="${DPLM_SIF:-$DPLM_BASE/dplm_sandbox}"
+source "$ROOT_DIR/scripts/meluxina/common.sh"
+
 # Apptainer's docker-layer cache defaults to ~/.apptainer/cache — on Karolina
 # HOME has a 25 GB quota and the dplm image's layers alone are ~20-30 GB, so
 # any build dies with "disk quota exceeded". Point cache + temp at scratch.
@@ -129,6 +135,7 @@ if [[ ! -f "$ROOT_DIR/eval/.ips_validated" ]]; then
   fi
   echo "[ips-validate] input: $TEST_FA"
   echo "[ips-validate] log:   /tmp/ips_validate.log  (live: tail -f in another shell)"
+  ensure_ips_python || echo "[ips-validate] WARN: proceeding without the python2 shim"
   IPS_DIR="$IPS_DIR" TEST_FA="$TEST_FA" bash -c '
     for init in /usr/share/lmod/lmod/init/bash /etc/profile.d/modules.sh /usr/share/modules/init/bash; do
       [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
