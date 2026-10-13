@@ -54,12 +54,34 @@ if [[ -d "$DPLM_BASE/dplm_sandbox" ]] && ! dplm_sandbox_ok "$DPLM_BASE/dplm_sand
   echo "EXISTS BUT CORRUPT (stdlib import fails — aborted build?); rebuilding"
   rm -rf "$DPLM_BASE/dplm_sandbox"
 fi
-if [[ ! -d "$DPLM_BASE/dplm_sandbox" ]]; then
+build_dplm_sandbox() {
+  local dst="$1"
   need_cmd apptainer
   echo "building from docker://pieris98/dplm:cu121-torch220-cond (~15-30 min)"
-  rm -rf "$DPLM_BASE/.dplm_sandbox.staging"
-  apptainer build --sandbox "$DPLM_BASE/.dplm_sandbox.staging" docker://pieris98/dplm:cu121-torch220-cond
-  mv "$DPLM_BASE/.dplm_sandbox.staging" "$DPLM_BASE/dplm_sandbox"
+  rm -rf "${dst}.staging" "${dst}.sif"
+  if apptainer build --sandbox "${dst}.staging" docker://pieris98/dplm:cu121-torch220-cond \
+     && dplm_sandbox_ok "${dst}.staging"; then
+    mv "${dst}.staging" "$dst"; return 0
+  fi
+  # Direct extraction onto Lustre produced truncated files (observed:
+  # deterministic mid-file cuts in stdlib/site-packages). Retry via a
+  # digest-verified SIF — a single sequential file, then one extraction
+  # from it. If THIS also fails the health check, scratch writes are
+  # corrupting data -> file an IT4I support ticket with the evidence.
+  echo "[setup] direct build failed health check — retrying via verified SIF"
+  apptainer build "${dst}.sif" docker://pieris98/dplm:cu121-torch220-cond
+  apptainer build --sandbox "${dst}.staging" "${dst}.sif"
+  rm -f "${dst}.sif"
+  dplm_sandbox_ok "${dst}.staging" && { mv "${dst}.staging" "$dst"; return 0; }
+  return 1
+}
+if [[ ! -d "$DPLM_BASE/dplm_sandbox" ]]; then
+  build_dplm_sandbox "$DPLM_BASE/dplm_sandbox" || {
+    echo "FATAL: dplm_sandbox build fails the health check in both modes."
+    echo "Evidence for IT4I support: deterministic mid-file truncation"
+    echo "(numpy/exceptions.py ends mid-word) across independent builds on scratch."
+    exit 1
+  }
 fi
 dplm_sandbox_ok "$DPLM_BASE/dplm_sandbox" \
   || { echo "FATAL: freshly built dplm_sandbox fails the import check"; exit 1; }
