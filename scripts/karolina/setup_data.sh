@@ -124,7 +124,10 @@ if [[ ! -f "$ROOT_DIR/eval/.ips_validated" ]]; then
   #   3. a builtin known-protein control (human ubiquitin — must annotate)
   TEST_FA="$( cd "$IPS_DIR" 2>/dev/null && {
     fa="core/test_all_proteins/test_all_proteins.fasta"
-    [[ -f "$fa" ]] || fa="$(find . -maxdepth 3 -path '*test*' -name '*.fasta' 2>/dev/null | head -1 || true)"
+    if [[ ! -f "$fa" ]]; then
+      # exclude nucleotide test inputs (e.g. test_nt_seqs.fasta) — IPS wants proteins
+      fa="$(find . -maxdepth 3 -path '*test*' -name '*.fasta' ! -iname '*nt*' 2>/dev/null | head -1 || true)"
+    fi
     [[ -n "$fa" ]] && echo "$fa"
   } )"
   if [[ -z "${TEST_FA:-}" ]]; then
@@ -136,6 +139,9 @@ if [[ ! -f "$ROOT_DIR/eval/.ips_validated" ]]; then
   echo "[ips-validate] input: $TEST_FA"
   echo "[ips-validate] log:   /tmp/ips_validate.log  (live: tail -f in another shell)"
   ensure_ips_python || echo "[ips-validate] WARN: proceeding without the python2 shim"
+  # NB: a failing validation must NOT abort the script (set -e would exit on
+  # the non-zero bash -c before we can report it) — isolate with set +e.
+  set +e
   IPS_DIR="$IPS_DIR" TEST_FA="$TEST_FA" bash -c '
     for init in /usr/share/lmod/lmod/init/bash /etc/profile.d/modules.sh /usr/share/modules/init/bash; do
       [[ -f "$init" ]] && source "$init" >/dev/null 2>&1 && break
@@ -149,6 +155,7 @@ if [[ ! -f "$ROOT_DIR/eval/.ips_validated" ]]; then
       -f TSV -o /tmp/ips_validate.tsv --disable-precalc -cpu 4
   ' >/tmp/ips_validate.log 2>&1
   IPS_RC=$?
+  set -e
   echo "[ips-validate] exit code: $IPS_RC"
   if (( IPS_RC == 0 )) && [[ -s /tmp/ips_validate.tsv ]] && grep -q "IPR" /tmp/ips_validate.tsv; then
     touch "$ROOT_DIR/eval/.ips_validated"
