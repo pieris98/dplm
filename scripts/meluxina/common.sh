@@ -270,28 +270,32 @@ ensure_java() {
   java -version 2>&1 | head -1
 }
 
-# InterProScan's MobiDB-lite step is a Python 2 script invoked via a bare
-# `python` command. EL8 hosts (Karolina) have no `python` binary — only
-# python2.7/python3* — so the step dies with "Run mobi-db Binary ... has
-# failed irretrievably". Create a python→python2.7 shim once under
-# eval/ips_bin and prepend it to PATH wherever IPS runs.
+# InterProScan's MobiDB-lite step (bin/mobidb/idrpred) is a Python >= 3.8
+# script — it annotates `re.Match`, which only exists in 3.8+. EL8 hosts
+# (Karolina) default python3 to 3.6, so the step dies with
+# `AttributeError: module 're' has no attribute 'Match'`. Shim BOTH python
+# and python3 (in a PATH segment prepended only for IPS runs) to the newest
+# host python3 that passes a re.Match check.
 ensure_ips_python() {
   local shim_dir="${REPO_DIR}/eval/ips_bin"
-  if [[ ! -x "$shim_dir/python" ]]; then
-    local py2=""
-    for c in python2.7 python2 python2.6; do
-      if command -v "$c" >/dev/null 2>&1; then py2="$(command -v "$c")"; break; fi
-      if [[ -x "/usr/bin/$c" ]]; then py2="/usr/bin/$c"; break; fi
-    done
-    if [[ -z "$py2" ]]; then
-      echo "[meluxina] WARN: no python2 on this host — IPS MobiDB step will fail"
-      return 1
+  local c p="" want=""
+  for c in python3.12 python3.11 python3.10 python3.9 python3.8 python3; do
+    p=""
+    if command -v "$c" >/dev/null 2>&1; then p="$(command -v "$c")"
+    elif [[ -x "/usr/bin/$c" ]]; then p="/usr/bin/$c"
     fi
-    mkdir -p "$shim_dir"
-    ln -sf "$py2" "$shim_dir/python"
-    echo "[meluxina] ips_bin shim: python -> $py2"
+    [[ -n "$p" ]] || continue
+    if "$p" -c "import re; assert hasattr(re, 'Match')" >/dev/null 2>&1; then want="$p"; break; fi
+  done
+  if [[ -z "$want" ]]; then
+    echo "[meluxina] WARN: no python >= 3.8 found — IPS MobiDB step will fail"
+    return 1
   fi
+  mkdir -p "$shim_dir"
+  ln -sf "$want" "$shim_dir/python"
+  ln -sf "$want" "$shim_dir/python3"
   export PATH="$shim_dir:$PATH"
+  echo "[meluxina] ips_bin shim: python,python3 -> $want"
 }
 
 # --- Eval-stack stage helpers -------------------------------------------------
