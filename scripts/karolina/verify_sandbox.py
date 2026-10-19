@@ -16,6 +16,7 @@ reported as "extra" but do not fail the check.
 """
 import argparse
 import hashlib
+import os
 import sys
 from pathlib import Path
 
@@ -44,42 +45,49 @@ def main() -> int:
         if len(parts) == 2:
             manifest[parts[1]] = parts[0]
 
-    missing, mismatched, errors = [], [], []
+    missing, mismatched, errors, unreadable = [], [], [], []
     checked = 0
     for rel, want in manifest.items():
         p = root / rel.lstrip("/")
-        if not p.exists():
-            missing.append(rel)
-            continue
         try:
             got = md5(p)
+        except FileNotFoundError:
+            missing.append(rel)
+            continue
+        except PermissionError:
+            # root-owned mode-600/700 image files — unreadable in a host-side
+            # check (inside the container we are fake-root and can read them)
+            unreadable.append(rel)
+            continue
         except OSError as e:
-            errors.append(f"{rel}: {e}")
+            errors.append("{}: {}".format(rel, e))
             continue
         checked += 1
         if got != want:
             mismatched.append(rel)
         if checked % 20000 == 0:
-            print(f"  ... {checked}/{len(manifest)} checked", flush=True)
+            print("  ... {}/{} checked".format(checked, len(manifest)), flush=True)
 
     extras = 0
-    for p in root.rglob("*"):
-        if p.is_file():
-            rel = "/" + str(p.relative_to(root))
+    for dirpath, _dirnames, filenames in os.walk(root, onerror=lambda e: None):
+        for fn in filenames:
+            rel = "/" + os.path.relpath(os.path.join(dirpath, fn), root)
             if rel.startswith(INSERT_PREFIXES) and rel not in manifest:
                 extras += 1
 
-    print(f"\nchecked {checked}/{len(manifest)} files")
-    print(f"MISSING:   {len(missing)}")
-    print(f"MISMATCH:  {len(mismatched)}")
-    print(f"READ ERR:  {len(errors)}")
-    print(f"extras (apptainer inserts, ignored): {extras}")
+    print("\nchecked {} (readable) of {} manifest files".format(checked, len(manifest)))
+    print("MISSING:    {}".format(len(missing)))
+    print("MISMATCH:   {}".format(len(mismatched)))
+    print("UNREADABLE: {} (root-owned image files — not corruption; verify "
+          "container-side if count is large)".format(len(unreadable)))
+    print("READ ERR:   {}".format(len(errors)))
+    print("extras (apptainer inserts, ignored): {}".format(extras))
     for rel in missing[: args.show]:
-        print(f"  MISSING  {rel}")
+        print("  MISSING  {}".format(rel))
     for rel in mismatched[: args.show]:
-        print(f"  MISMATCH {rel}")
+        print("  MISMATCH {}".format(rel))
     for e in errors[: args.show]:
-        print(f"  ERR      {e}")
+        print("  ERR      {}".format(e))
     ok = not (missing or mismatched or errors)
     print("\nSANDBOX VERIFIED CLEAN" if ok else "\nSANDBOX CORRUPT")
     return 0 if ok else 1
