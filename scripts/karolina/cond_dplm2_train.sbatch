@@ -5,7 +5,9 @@
 #SBATCH --partition=qgpu_big
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=32
+## qgpu_big is WHOLE-NODE ONLY: requesting fewer than all 128 CPUs is rejected
+## with "Queue qgpu_big is not intended for small jobs".
+#SBATCH --cpus-per-task=128
 #SBATCH --gres=gpu:8
 #SBATCH --time=12:00:00
 #SBATCH --signal=B:TERM@300

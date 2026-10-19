@@ -62,7 +62,7 @@ echo '  exit        : release the allocation'
 rm -f "\${BASH_SOURCE[0]}"
 EOS
     exec srun --account="${ACCOUNT}" -p qgpu_big -N1 --ntasks=1 \
-      --cpus-per-task=32 --gres=gpu:8 -t "${TIME}" \
+      --cpus-per-task=128 --gres=gpu:8 -t "${TIME}" \
       --pty bash --noprofile --rcfile "${BASHRC}" -i
     ;;
   evalsh)
