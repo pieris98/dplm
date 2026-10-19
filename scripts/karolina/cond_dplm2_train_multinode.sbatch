@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=cond_dplm2_ddp
 #SBATCH --partition=qgpu
+## IT4I canonical GPU form: --gpus N (--nodes M). Do NOT add --gres/--cpus-per-task/--mem
+## here — IT4I docs mark that as "undesirable" on GPU queues and their submit
+## filter rejects such real submissions ("AssocMaxSubmitJobLimit") even when
+## --test-only passes. GPU→task binding happens on the srun step below.
 #SBATCH --nodes=2
-#SBATCH --ntasks-per-node=8
-#SBATCH --cpus-per-task=16
-#SBATCH --gres=gpu:8
+#SBATCH --gpus 16
 #SBATCH --time=47:00:00
 #SBATCH --signal=B:TERM@300
 #SBATCH --output=logs/slurm/cond_dplm2_ddp_%j.out
@@ -88,9 +90,12 @@ resubmit() {
 trap 'resubmit || true; exit 0' TERM
 
 # --- launch one containerized rank per GPU ------------------------------------
+# The ALLOCATION used the canonical --gpus form (no per-task gres binding), so
+# the srun step binds 1 GPU per task explicitly. CPU/memory shares come from
+# IT4I's per-part defaults (16 cores/8 parts) — do not pin them.
 chmod +x "${ROOT_DIR}/scripts/karolina/train_rank.sh"
 set +e
-srun --ntasks-per-node=8 --cpus-per-task=16 --mem=0 \
+srun --ntasks-per-node=8 --gpus-per-task=1 \
      bash "${ROOT_DIR}/scripts/karolina/train_rank.sh"
 TRAIN_RC=$?
 set -e
