@@ -21,6 +21,14 @@ import sys
 from pathlib import Path
 
 INSERT_PREFIXES = ("/.singularity.d/", "/usr/bin/apptainer", "/.apptainer/")
+# runtime-mutated by docker/apptainer at container start — never match a
+# stored reference:
+RUNTIME_FILES = {
+    "/.dockerenv",
+    "/etc/hostname",
+    "/etc/hosts",
+    "/etc/resolv.conf",
+}
 
 
 def md5(path: Path) -> str:
@@ -48,6 +56,8 @@ def main() -> int:
     missing, mismatched, errors, unreadable = [], [], [], []
     checked = 0
     for rel, want in manifest.items():
+        if rel in RUNTIME_FILES:
+            continue
         p = root / rel.lstrip("/")
         try:
             got = md5(p)
