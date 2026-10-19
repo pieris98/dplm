@@ -98,9 +98,14 @@ EOS
   check)
     CMD="source '${COMMON}' && run_in_container \"\${DPLM_PY}\" '${CHECKS_IN_CONTAINER}'"
     if on_login_node; then
-      echo "[interactive] on login node — allocating 1 GPU (qgpu, ${TIME:-01:00:00}) ..."
-      exec srun --account="${ACCOUNT}" -p qgpu -N1 --ntasks=1 \
-        --cpus-per-task=16 --mem=48G --gres=gpu:1 -t "${TIME_CHECK:-01:00:00}" \
+      # Checks need ~5-10 min of one GPU — keep the request small (schedules
+      # much faster) and allow a partition switch: on Karolina `qgpu_exp`
+      # (1 h cap, priority 5) and `qgpu_free` often idle when qgpu is busy.
+      PARTITION="${PARTITION_CHECK:-qgpu}"
+      TIME="${TIME_CHECK:-00:20:00}"
+      echo "[interactive] on login node — allocating 1 GPU (${PARTITION}, ${TIME}) ..."
+      exec srun --account="${ACCOUNT}" -p "${PARTITION}" -N1 --ntasks=1 \
+        --cpus-per-task=16 --mem=48G --gres=gpu:1 -t "${TIME}" \
         bash -c "${CMD}"
     else
       echo "[interactive] already on compute node $(hostname -s) — running checks"
