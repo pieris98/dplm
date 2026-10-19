@@ -14,8 +14,6 @@ Exit code: 0 if every manifest file matches, 1 otherwise.
 Apptainer's own build inserts (/.singularity.d, /usr/bin/apptainer...) are
 reported as "extra" but do not fail the check.
 """
-from __future__ import annotations
-
 import argparse
 import hashlib
 import sys
@@ -40,7 +38,7 @@ def main() -> int:
     args = ap.parse_args()
 
     root = Path(args.root)
-    manifest: dict[str, str] = {}
+    manifest = {}
     for line in open(args.manifest):
         parts = line.strip().split(None, 1)
         if len(parts) == 2:
