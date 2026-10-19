@@ -206,17 +206,24 @@ fi
 # inside the py3.9 container via PYTHONPATH. A 3.12 pip would pull networkx
 # >=3.4 (py>=3.10 wheels) and break the container-side import.
 step "6. eval/pylibs (obonet)"
-PY_SETUP="$(command -v python3.9 || command -v python3.11 || command -v python3.12 || command -v python3)"
-echo "using host python: $PY_SETUP ($("$PY_SETUP" -V 2>&1))"
-if "$PY_SETUP" -c "import sys; sys.path.insert(0, '$ROOT_DIR/eval/pylibs'); import obonet" 2>/dev/null; then
-  echo "exists"
-elif "$PY_SETUP" -m pip install --target "$ROOT_DIR/eval/pylibs" "obonet==1.2.0"; then
-  "$PY_SETUP" -c "import sys; sys.path.insert(0, '$ROOT_DIR/eval/pylibs'); import obonet; print('obonet import OK')"
+# PRIMARY: install with the SANDBOX's own pip (byte-exact, version-matched with
+# the interpreter that will import it in the scorer). Falls back to a host
+# python3.9 if apptainer/network is unavailable.
+if apptainer exec --bind "$ROOT_DIR/eval:/workspace/dplm/eval:rw" \
+     "$DPLM_SIF" /opt/venv/bin/python -c "import sys; sys.path.insert(0, '/workspace/dplm/eval/pylibs'); import obonet" 2>/dev/null; then
+  echo "exists (sandbox-pip install verified in-container)"
 else
-  echo "pip module missing? trying ensurepip, then a bare pip-3.9 fallback"
-  "$PY_SETUP" -m ensurepip 2>/dev/null || true
-  "$PY_SETUP" -m pip install --target "$ROOT_DIR/eval/pylibs" "obonet==1.2.0" \
-    || pip3.9 install --target "$ROOT_DIR/eval/pylibs" "obonet==1.2.0"
+  rm -rf "$ROOT_DIR/eval/pylibs"
+  if apptainer exec --bind "$ROOT_DIR/eval:/workspace/dplm/eval:rw" \
+       "$DPLM_SIF" /opt/venv/bin/pip install --target /workspace/dplm/eval/pylibs "obonet==1.2.0"; then
+    echo "installed with the sandbox pip"
+  else
+    echo "sandbox pip unavailable — falling back to host python3.9"
+    PY_SETUP="$(command -v python3.9 || command -v python3)"
+    "$PY_SETUP" -m pip install --target "$ROOT_DIR/eval/pylibs" "obonet==1.2.0" \
+      || pip3.9 install --target "$ROOT_DIR/eval/pylibs" "obonet==1.2.0"
+  fi
+  apptainer exec "$DPLM_SIF" /opt/venv/bin/python -c "import sys; sys.path.insert(0, '/workspace/dplm/eval/pylibs'); import obonet; print('obonet OK', obonet.__version__)"
 fi
 
 # --- 7. DeepGO-SE model data (bio2vec.net mirror; the old KAUST link rotted) -
