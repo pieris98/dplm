@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# NOTE: --account MUST be set — the default account "defac" has MaxSubmit=0
+#SBATCH --account=eu-26-85
 #SBATCH --job-name=cond_dplm2_ddp
 #SBATCH --partition=qgpu
 ## IT4I canonical GPU form: --gpus N (--nodes M). Do NOT add --gres/--cpus-per-task/--mem

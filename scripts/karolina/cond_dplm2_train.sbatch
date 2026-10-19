@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# NOTE: --account MUST be set — the default account "defac" has MaxSubmit=0
+#SBATCH --account=eu-26-85
 #SBATCH --job-name=cond_dplm2
 # ACCOUNT must be exported before submitting:
 #   ACCOUNT=OPEN-XX-XX sbatch --export=ALL scripts/karolina/cond_dplm2_train.sbatch

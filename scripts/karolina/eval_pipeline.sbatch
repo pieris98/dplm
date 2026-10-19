@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# NOTE: --account MUST be set — the default account "defac" has MaxSubmit=0
+#SBATCH --account=eu-26-85
 #SBATCH --job-name=fn_eval
 #SBATCH --partition=qgpu
 #SBATCH --nodes=1
