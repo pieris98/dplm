@@ -4,6 +4,45 @@ Running log of weekly progress meetings. Newest entry first.
 
 ---
 
+## 2026-10-20 — Presenter notes: the steering experiment in plain terms
+
+*(read-aloud summary; full definitions in [anchored_steering_experiment.md](anchored_steering_experiment.md))*
+
+**The setup — what "anchored infill" is.** Instead of asking the model to write a protein from nothing (the from-scratch arms we showed before), we take a **real protein** — an *anchor* — blank out a fraction **p** of its amino acids, and ask a model to fill in the blanks. We do that with three models on the *same* anchors: **vanilla** (pretrained DPLM-2, no condition), **cond** (our checkpoint, prompted with the anchor's own family), and **cond(null)** (our checkpoint, deliberately given *no* family). p=1.0 — everything blanked — is included on purpose: it is mathematically the same as from-scratch generation, so it must reproduce the collapse we showed earlier; if it does, we know the two views agree.
+
+**Why this design:** the input is real and identical across arms, so any difference between cond and vanilla is caused by the *condition alone* — paired, controlled, per-sequence. That separates the two things our earlier evaluation couldn't separate: *"does the conditioning push toward the right family?"* vs *"does the sampler fall apart?"*
+
+**"Attractor" — what I meant.** Informal term for a state the generation process keeps falling back into and can't escape. Our model has a **poly-A attractor**: asked to generate from scratch at guidance weight 1, it converges to strings that are ~78% alanine (real proteins: ~9%), regardless of which family you request. Moderate nudges (CFG w=2–4) partially escape it; the from-scratch path always lands back in it.
+
+**The three hypotheses** — competing explanations for that collapse (written down before running; the full anticipation table is in the plan doc):
+
+- **H1 — the conditioning works; the free-running sampler is broken.** Prediction: anchored edits steer toward the family and stay realistic at low masking.
+- **H2 — the adapter module itself is poisoned:** *any* pass through our adapters drags output toward alanine, even with no condition. Prediction: alanine fraction climbs steeply as p grows, in *both* cond arms.
+- **H3 — the conditioning is simply too weak to matter:** on real, mostly-intact sequences the base model is confident and the adapters whisper. Prediction: all three arms behave identically.
+
+Each hypothesis implies a different fix (H1 → sampler/schedule fixes; H2 → architecture ablation + retrain; H3 → stronger conditioning pathway), which is why deciding between them matters.
+
+**Results so far — 5 of ~60 planned cells (first pass):**
+
+| cell (family/stratum, arm, mask rate) | realized edit | alanine fraction | composition distance vs real |
+|---|---|---|---|
+| OB-fold/low, **cond, p=0.3** | 0.27 (≈ budget) | 0.185 | 0.036 |
+| OB-fold/low, **cond, p=1.0** | 0.91 | **0.685** | **0.464** |
+| NAD-binding/low, **vanilla**, p=0.3 / 0.8 / 1.0 | 0.14 / 0.46 / 0.94 | 0.11 / 0.11 / 0.10 | ≤ 0.006 |
+
+Read-aloud interpretation:
+
+1. **The mask-budget mechanism works** — at p=0.3 the model edits almost exactly its 30% budget.
+2. **Moderate conditioned editing is clean:** alanine stays at the anchor's own inherited level, composition stays near-real. This is what H1 predicts, and it *contradicts H2's strong form* — a pass through our adapters does *not* automatically drag the output toward alanine.
+3. **The collapse only appears in the blank-page limit** — p=1.0 lands back in the poly-A attractor — while vanilla stays clean at *every* mask rate, so it isn't the infilling mechanism itself.
+4. **Verdict: pending, leaning H1 over H2; H3 not yet excluded.** The deciding cells — cond(null) drift, Δcoverage via InterProScan, and the 18 deferred cells — are queued behind the new training run on Karolina.
+
+**One-line summary:** *fill-in-the-blanks on real proteins works fine under conditioning; only blank-page generation collapses — so the pathology looks like a sampler-regime problem (fixable) rather than a broken adapter (retrain), and the checkpoint sweep (conditioning flat 80K→100K, realism slightly worse) independently supports testing a shorter/full training run.*
+
+**Also this week (context slide):** full migration to Karolina IT4I after Meluxina access ended — image verified byte-perfect against a 96k-file manifest, all validation gates green on a compute node, multi-node training launcher ready; the 100K-step baseline rerun (16 GPUs, ~36 h, batch-matched) plus a 20-step smoke are queued.
+
+---
+
 ## 2026-10-13 — Weekly progress meeting (distribution figures + paper draft review)
 
 **Context at meeting time:** showed the dimensionality-reduction distribution-comparison plot (`scripts/eval_function/plot_umap.py` — real vs vanilla vs adapter arms in a shared ESM-2 3B embedding space) and the paper draft [../papers/conditional_dplm2_paper/](../papers/conditional_dplm2_paper/). Open problem from 09-29 stands: real conditioning signal exists (MRR, per-family MMD delta) but severe realism regression (MMD 0.37–0.89 vs vanilla 0.16; off-manifold in ESM space) and zero IPR recovery (composition artifact, no sequence-specific domain content).
