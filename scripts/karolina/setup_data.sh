@@ -89,19 +89,35 @@ echo "dplm_sandbox healthy"
 
 # --- 2. deepgose sandbox (DeepGO-SE predict env; ~12 GB) ---------------------
 step "2. deepgose sandbox"
+# Health check imports the heavy stack predict.py touches first — a
+# click/Bio-only check missed a truncated numpy on Lustre (predict.py imports
+# numpy before anything else).
 deepgose_ok() {
-  apptainer exec "$1" python -c "import click, Bio" >/dev/null 2>&1
+  apptainer exec "$1" python -c "import click, Bio, numpy, torch; assert (numpy.zeros(3) + 1).sum() == 3" >/dev/null 2>&1
+}
+build_deepgose_sandbox() {
+  local dst="$1"
+  rm -rf "${dst}.staging" "${dst}.sif"
+  if apptainer build --sandbox "${dst}.staging" docker://coolmaksat/deepgose \
+     && deepgose_ok "${dst}.staging"; then
+    mv "${dst}.staging" "$dst"; return 0
+  fi
+  echo "[setup] direct build failed health check — retrying via verified SIF"
+  apptainer build "${dst}.sif" docker://coolmaksat/deepgose
+  apptainer build --sandbox "${dst}.staging" "${dst}.sif"
+  rm -f "${dst}.sif"
+  deepgose_ok "${dst}.staging" && { mv "${dst}.staging" "$dst"; return 0; }
+  return 1
 }
 if [[ -e "$ROOT_DIR/eval/deepgose_sandbox" ]] && ! deepgose_ok "$ROOT_DIR/eval/deepgose_sandbox"; then
-  echo "EXISTS BUT CORRUPT; rebuilding"
+  echo "EXISTS BUT CORRUPT (numpy/torch import fails — truncated extraction?); rebuilding"
   rm -rf "$ROOT_DIR/eval/deepgose_sandbox"
 fi
 if [[ ! -e "$ROOT_DIR/eval/deepgose_sandbox" ]]; then
   need_cmd apptainer
   mkdir -p "$ROOT_DIR/eval"
-  rm -rf "$ROOT_DIR/eval/.deepgose_sandbox.staging"
-  apptainer build --sandbox "$ROOT_DIR/eval/.deepgose_sandbox.staging" docker://coolmaksat/deepgose
-  mv "$ROOT_DIR/eval/.deepgose_sandbox.staging" "$ROOT_DIR/eval/deepgose_sandbox"
+  build_deepgose_sandbox "$ROOT_DIR/eval/deepgose_sandbox" || {
+    echo "FATAL: deepgose_sandbox build fails the health check in both modes"; exit 1; }
 fi
 deepgose_ok "$ROOT_DIR/eval/deepgose_sandbox" \
   || { echo "FATAL: deepgose_sandbox fails the import check"; exit 1; }
@@ -148,10 +164,10 @@ if [[ ! -f "$ROOT_DIR/eval/.ips_validated" ]]; then
   #   2. any bundled *test*.fasta
   #   3. a builtin known-protein control (human ubiquitin — must annotate)
   TEST_FA="$( cd "$IPS_DIR" 2>/dev/null && {
-    fa="core/test_all_proteins/test_all_proteins.fasta"
+    fa="test_proteins.fasta"   # verified present in the IPS 5.78 root
     if [[ ! -f "$fa" ]]; then
       # exclude nucleotide test inputs (e.g. test_nt_seqs.fasta) — IPS wants proteins
-      fa="$(find . -maxdepth 3 -path '*test*' -name '*.fasta' ! -iname '*nt*' 2>/dev/null | head -1 || true)"
+      fa="$(find . -maxdepth 2 -path '*test*' -name '*.fasta' ! -iname '*nt*' 2>/dev/null | head -1 || true)"
     fi
     [[ -n "$fa" ]] && echo "$fa"
   } )"

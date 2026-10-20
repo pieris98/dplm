@@ -111,7 +111,7 @@ for arm in $ARMS_ALL; do
     --bind "$REPO_DIR/eval/esm_torch_hub:/root/.cache/torch/hub/checkpoints" \
     --bind "$REPO_DIR/$EVALDIR:/workspace/deepgo2/eval" \
     "$DG_SANDBOX" \
-    python predict.py -if "eval/$arm/aatype.fasta" -dr data -d cuda
+    python /workspace/deepgo2/predict.py -if "/workspace/deepgo2/eval/$arm/aatype.fasta" -dr /workspace/deepgo2/data -d cuda
 done
 
 # --- D. scoring (dplm sandbox; sklearn+obonet via eval/pylibs) ---------------

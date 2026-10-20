@@ -246,8 +246,22 @@ run_in_container_shell() {
 # interactive shells, and module init can hang — same hang-safe throwaway
 # subshell discovery as the apptainer block above, plus a filesystem glob
 # fallback over EasyBuild prefixes. Safe to call repeatedly.
+_java_major() {
+  # "openjdk version \"1.8.0_502\"" -> 8 ; "\"11.0.20\"" -> 11
+  java -version 2>&1 | head -1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p'
+}
+
 ensure_java() {
-  command -v java >/dev/null 2>&1 && { java -version 2>&1 | head -1; return 0; }
+  # IPS 5.78 requires Java >= 11. Karolina's default environment carries
+  # Java 1.8 — so PRESENCE of java is not enough, the major version must
+  # pass. Order: existing java (if >= 11), guarded module load (Java/11
+  # then Java), EasyBuild glob fallback.
+  if command -v java >/dev/null 2>&1; then
+    local maj; maj="$(_java_major)"
+    if [[ -n "$maj" ]] && (( maj >= 11 )); then
+      java -version 2>&1 | head -1; return 0
+    fi
+  fi
   local _jbin
   _jbin="$(timeout 20 bash -c '
     for init in /etc/profile.d/modules.sh /usr/share/modules/init/bash /etc/profile.modules /usr/share/lmod/lmod/init/bash; do
@@ -262,11 +276,18 @@ ensure_java() {
     export PATH="${_jbin}:${PATH}"
   else
     local j
-    for j in /apps/USE/easybuild/release/*/software/Java/*/bin; do
+    for j in /apps/USE/easybuild/release/*/software/Java/*/bin /usr/lib/jvm/*/bin; do
       [[ -x "$j/java" ]] && export PATH="${j}:${PATH}" && break
     done
   fi
-  command -v java >/dev/null 2>&1 || { echo "[meluxina] ERROR: java not found (required by InterProScan)"; return 1; }
+  if ! command -v java >/dev/null 2>&1; then
+    echo "[meluxina] ERROR: java not found (required by InterProScan)"; return 1
+  fi
+  local maj; maj="$(_java_major)"
+  if [[ -z "$maj" ]] || (( maj < 11 )); then
+    echo "[meluxina] ERROR: java >= 11 required for InterProScan, found: $(java -version 2>&1 | head -1)"
+    return 1
+  fi
   java -version 2>&1 | head -1
 }
 
@@ -342,8 +363,10 @@ eval_ips() {
 }
 
 eval_dg() {
-  # eval_dg <evaldir> <arm>   — DeepGO-SE sandbox on GPU (container-relative
-  # paths assume EVALDIR sits directly under the repo root)
+  # eval_dg <evaldir> <arm>   — DeepGO-SE sandbox on GPU. Container paths are
+  # ABSOLUTE on purpose: apptainer maps the caller's cwd into the container
+  # (via SINGULARITY_BINDPATH), so relative paths resolve against wherever the
+  # shell happens to stand and break silently.
   if [[ $# -lt 2 || -z "${1:-}" || -z "${2:-}" ]]; then
     echo "usage: eval_dg <evaldir> <arm>" >&2
     return 2
@@ -357,7 +380,7 @@ eval_dg() {
     --bind "$REPO_DIR/eval/esm_torch_hub:/root/.cache/torch/hub/checkpoints" \
     --bind "$REPO_DIR/$evaldir:/workspace/deepgo2/eval" \
     "$REPO_DIR/eval/deepgose_sandbox" \
-    python predict.py -if "eval/$arm/aatype.fasta" -dr data -d cuda
+    python /workspace/deepgo2/predict.py -if "/workspace/deepgo2/eval/$arm/aatype.fasta" -dr /workspace/deepgo2/data -d cuda
 }
 
 eval_score() {
