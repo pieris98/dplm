@@ -5,7 +5,8 @@
 # annotation embedders + projection MLPs.
 
 defaults:
-  - /callbacks: lm
+  # cond_probe = lm checkpoints + the Tier-1 conditioning probe
+  - /callbacks: cond_probe
   - /trainer: ddp_bf16
 
 project: "CondDPLM2_650m"

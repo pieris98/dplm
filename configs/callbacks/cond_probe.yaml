@@ -1,0 +1,23 @@
+defaults:
+  - lm.yaml
+
+# Tier-1 in-training conditioning probe (predictor-free; rank 0 only).
+# See src/byprot/utils/cond_probe.py + plans/mode_collapse_debug_plan.md P3.1.
+# Pre-registered early-failure rule: probe a_frac > 0.25 at 2 consecutive
+# probes after step 5000 → probe/alarm=1 (+ abort if alarm.abort=true).
+conditioning_probe:
+  _target_: byprot.utils.cond_probe.ConditioningProbeCallback
+  probe_every_n_steps: 2000
+  loss_delta_num_batches: 2
+  n_labels: 8
+  seqs_per_label: 4
+  probe_len: 64
+  probe_max_iter: 64
+  n_reference: 256
+  probe_seed: 42
+  probe_dir: null # default: <trainer.default_root_dir>/eval_probes
+  max_probe_failures: 3
+  alarm_a_frac_threshold: 0.25
+  alarm_start_step: 5000
+  alarm_consecutive_probes: 2
+  alarm_abort: false

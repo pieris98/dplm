@@ -12,15 +12,19 @@
 #     trainer.num_nodes=$NUM_NODES
 
 defaults:
-  - /callbacks: lm
+  # cond_probe = lm checkpoints + the Tier-1 conditioning probe
+  - /callbacks: cond_probe
   - /trainer: meluxina_ddp_bf16
 
-# Checkpoint I/O: each ckpt carries the full 650M state (~2.6 GB). The lm
-# defaults (top-10 every 1000 steps) would write ~260 GB over 100K steps and
-# steal GPU time; top-2 every 2000 keeps best + last ≈ 8 GB.
+# Checkpoint I/O: each ckpt carries the full 650M state (~2.6 GB). save_top_k
+# must stay -1 (keep every periodic checkpoint): top-2-by-val-loss destroyed
+# checkpoints 0–80K in the first run (evidence E7 in the debug plan), making
+# the degradation-onset unlocalizable. 50 ckpts x 2.6 GB ≈ 130 GB — fine on
+# Karolina's 20 TB scratch. The conditioning_probe callback below (from the
+# cond_probe callbacks group) is the early-failure detector; do not remove.
 callbacks:
   model_checkpoint:
-    save_top_k: 2
+    save_top_k: -1 # keep ALL periodic checkpoints (see comment above)
     every_n_train_steps: 2000
 
 project: "CondDPLM2_650m"
