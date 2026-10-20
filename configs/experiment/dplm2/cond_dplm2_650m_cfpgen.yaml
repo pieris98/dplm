@@ -42,7 +42,11 @@ model:
     arch_type: esm
     name: airkingbd/dplm2_650m
     dropout: 0.1
-    pretrain: false
+    # MUST stay true: with false, get_net_dplm2 skips ALL pretrained-weight
+    # loading and the frozen base is randomly initialized (root cause of the
+    # 2026-10 mode-collapse incident). scripts/debug/phase0_gauntlet.py
+    # --check pretrained-base verifies it.
+    pretrain: true
     pretrained_model_name_or_path: airkingbd/dplm2_650m
   self_mixup:
     enable: false

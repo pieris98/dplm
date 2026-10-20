@@ -1,8 +1,32 @@
 # RESEARCH_STATE.md — handoff snapshot
 
-**Date:** 2026-09-29 · **Repo:** `dplm` (branch `main`) · **Author context:** PhD project — function-conditioned protein generation on DPLM-2.
+**Date:** 2026-10-20 · **Repo:** `dplm` (branch `main`) · **Author context:** PhD project — function-conditioned protein generation on DPLM-2.
 
 This file is the single entry point for resuming work. It summarizes what exists, what we learned, what is broken/pending, and where everything lives. Companion documents are linked in §2; numbers cite the committed reports.
+
+---
+
+## 0. ROOT-CAUSE INCIDENT (2026-10-20) — read this first
+
+**Every trained ConditionalDPLM-2 checkpoint to date (80K, 100K) was trained on a randomly-initialized frozen encoder — the pretrained DPLM-2 weights were never loaded.** Found during the Phase 0 debugging campaign (PI feedback: "it's either a model problem or a bug in code"). Evidence chain, each step verified:
+
+1. The checkpoint's base weights differ from the HF release by O(1–13) across *all* 33 encoder layers, embeddings, and lm_head (so "collapse lives in the trained weights" was trivially true — the trained weights include a random encoder).
+2. `lm_head.bias` in the checkpoint is exactly all-zero and every base tensor is exactly N(0, 0.02) with kurtosis 3.0 — the pristine HF initializer, not any trained distribution.
+3. **Bit-exact reconstruction:** `torch.manual_seed(42)` (the config's own `train.seed`) + `EsmForDPLM2(config, dropout=0.1, vocab_size=8229)` — the direct construction — reproduces the checkpoint's base weights exactly (3/4 spot tensors bitwise; embedding table off by one RNG draw).
+4. Optimizer state contains moments for exactly 19.55M params (= conditioning modules only); 80K→100K base weights moved by 0 — the base was frozen *at random init* while adapters trained.
+
+**Mechanism:** [configs/experiment/dplm2/cond_dplm2_650m_cfpgen_meluxina.yaml](configs/experiment/dplm2/cond_dplm2_650m_cfpgen_meluxina.yaml) (and the base [cond_dplm2_650m_cfpgen.yaml](configs/experiment/dplm2/cond_dplm2_650m_cfpgen.yaml)) set `net.pretrain: false`, and `get_net_dplm2` only loads pretrained weights inside `if cfg.net.pretrain:` ([models/utils.py:143](src/byprot/models/utils.py#L143)) — with `freeze_base: true` the run froze a random encoder for 100K steps. The trap that likely produced the config: with `pretrain: true`, the `continue_train_from_dplm2` branch used to `assert is_local`, which crashes on the HF repo id — someone "fixed" that crash by disabling loading instead.
+
+**Fix (committed, regression-tested):** `get_net_dplm2`'s `continue_train_from_dplm2` branch now loads HF repo ids via `from_huggingface=True`; both conditional configs set `pretrain: true` with a warning comment. [scripts/debug/phase0_gauntlet.py](scripts/debug/phase0_gauntlet.py) verifies the whole pipeline: **21/21 checks green** on the fixed path, including `pretrained-base` (573/573 base tensors bitwise-equal to the HF release), identity-at-init (forward/from-scratch/infill all bit- or token-identical to vanilla), parent-body equivalence, adapter invocation census (33/66/0), null-path + eval-mode consistency, CFG w∈{0,4} degeneracy, and the training-data round-trip (aa identity, struct/aa track alignment, label ranges, annotation alignment). P0.7 (scorer re-run on committed outputs) is documented, not yet run.
+
+**Consequences — what survives and what doesn't:**
+
+- **Does not survive:** every conditional-arm *method* conclusion (MRR steering signal, per-family Δ, CFG dose-response incl. the non-monotone w-curve, checkpoint-sweep "overtraining" reading, anchored-steering H1/H2/H3 verdicts, the ProCALM-port comparison). They all describe random-encoder+adapters, not adapter-based conditioning. The poly-A attractor is what 33 layers × 10.3M adapters learn as a marginal on top of random features — an artifact of the broken premise, not a property of the method.
+- **Resolves the ours_null mechanism puzzle:** the eval driver passes `conditions=None` for the null arm, and `_encode_conditions(None)` returns None → **adapters fully bypassed** — ours_null was the raw random encoder (hence displaced manifold, MMD 0.854). Null-conditioned *generation with the null embedding* (as designed for CFG) was never what that arm measured.
+- **Survives:** the eval stack itself (positive controls pass — real arm IPS F1 0.978, metric sanity suites), the data pipeline (round-trip audited clean), the cluster infrastructure, all committed tooling, and the design documents.
+- **The old checkpoints are artifacts of the bug.** Keep on disk for forensics only; they must not back any paper claim. `logs/cond_dplm2_650m_cfpgen/checkpoints/step_{79999,99999}.0-loss_{1.96,1.95}.ckpt`.
+
+**Status:** Phase 0 of [plans/mode_collapse_debug_plan.md](plans/mode_collapse_debug_plan.md) is complete. Phase 1 forensics on the old checkpoint are moot (nothing to localise in a random encoder). The immediate path is the **fixed instrumented retrain** (plan Phase 3): sync the fix to Karolina, checkpoint-cadence fix (`save_top_k`), Tier-1 validation callback before launch, then the 100K run, then the full eval re-run.
 
 ---
 
@@ -55,6 +79,8 @@ All under [scripts/eval_function/](scripts/eval_function/) + [src/byprot/eval/](
 ---
 
 ## 3. Key empirical findings
+
+> ⚠️ **Superseded by §0:** all numbers below describe checkpoints trained on a randomly-initialized encoder (root-cause incident, 2026-10-20). They are retained because they are committed history and because the *eval stack* validation they contain still holds. No conditional-arm number may be cited as evidence about the conditioning method.
 
 ### 3.1 Setup (all numbers from `eval_runs/fn_eval_v1/`, committed reports)
 
@@ -135,16 +161,20 @@ All under [scripts/eval_function/](scripts/eval_function/) + [src/byprot/eval/](
    - *Tier 2 — decoupled predictor recovery:* [eval_pipeline.sbatch](scripts/meluxina/eval_pipeline.sbatch) with `SKIP_GENERATE=1` (and `RUN_NAME`/`EVALDIR` pointed at a probe dir), submitted `--dependency=afterok:<job>` or manually on chosen checkpoints. Only here do IPS/DeepGO-SE/Fmax run.
    - Deferred: PDB/pLDDT/scTM qualitative table (needs ESMFold in-container — separate decision).
 
-### 4.3 Pending task queue (from [plans/meetings.md](plans/meetings.md), priority order)
+### 4.3 Pending task queue (post-root-cause, 2026-10-20 — from [plans/mode_collapse_debug_plan.md](plans/mode_collapse_debug_plan.md) + [plans/meetings.md](plans/meetings.md))
 
-- [x] **Meluxina artifact placement** — synced 2026-10-02 (deepgo2 data, cfpgen eval pkl/mappings, ESM-2 3B cache, deepgose sandbox; IPS+go.obo were already there). Note: everything eval-related only runs **inside a GPU allocation** (login nodes block user namespaces + modules). One-time remaining: `python3 -m pip install --target <repo>/eval/pylibs obonet==1.2.0` on the login node.
-- [x] **`scripts/meluxina/eval_pipeline.sbatch`** (2026-10-02) — end-to-end eval job: generation → IPS → DeepGO-SE → scoring, stage-idempotent, `RUN_NAME/CKPT/SWEEP/SKIP_GENERATE` env-configurable; `common.sh` now auto-binds `eval/` (ro), `eval_runs/` (rw) and adds `eval/pylibs` to `PYTHONPATH`. See the runbook's eval section.
+- [x] **Phase 0 code-correctness gauntlet** (2026-10-20) — root cause found and fixed; 21/21 checks green ([scripts/debug/phase0_gauntlet.py](scripts/debug/phase0_gauntlet.py)). P0.7 scorer re-run still available as a documented command.
+- [ ] **Commit the fix** (loader + both configs + gauntlet script) so it propagates to Karolina via git.
+- [ ] **Checkpoint-cadence fix in the training config**: `save_top_k: 2` destroyed checkpoints 0–80K (evidence E7); switch to unpruned periodic saves (every 2000 → 50 × 2.6 GB ≈ 130 GB, fine on Karolina scratch) before any relaunch.
+- [ ] **Tier-1 validation callback** (plan P3.1, = 10-20 PI feedback item 3): generation probe every N steps with predictor-free metrics to wandb (A-fraction, per-AA JS vs real, MMD-proxy, probe MRR, per-layer ‖Δh‖, adapter ‖W‖ norms) + pre-registered early-failure/abort criteria. Implement **before** the 100K launch; the queued 20-step smoke carries the plumbing.
+- [ ] **Fixed 100K baseline rerun on Karolina** (plan Phase 3): config otherwise unchanged for comparability; smoke first; wandb online-vs-offline decision still open.
+- [ ] **Full eval re-run on the fixed checkpoint** (the entire fn_eval_v1 protocol + steering grid) — the current conditional-arm results describe the broken model and must be regenerated before any method claim.
 - [ ] Feedback 3 — **benchmark survey**: eval protocols of other function-conditional / multimodal PLMs (ProGen-family conditional evals, ESM3 function-annotation evals, ZymCTRL EC, CAFA) beyond CFP-Gen's.
 - [ ] Feedback 6 — **combined structural+sequence+functional comparison** per arm/w, incl. the degradation check: co-generation designability (identical settings: pretrained vs our ckpt null) + CAMEO 2022 forward folding + paper-numbers table.
 - [ ] UMAP extension (optional): structure-token / pLDDT coloring; per-family centroid grid for all 32 labels.
 - [ ] Smin (CAFA semantic distance) via CAFA-evaluator — deferred, needs information-content weights.
 - [ ] Docs: loss-decomposition section + Mermaid training/inference diagrams in the technical reference (09-15 meeting items still open).
-- [ ] Data scaling path (gated on LoRA result): tokenize the ~49K missing CFP-Gen proteins with the corrected v2 pipeline (82–104K total), LoRA on the combined set.
+- [ ] Data scaling path (gated on fixed-run result): tokenize the ~49K missing CFP-Gen proteins with the corrected v2 pipeline (82–104K total).
 
 ---
 
@@ -218,4 +248,4 @@ InterProScan: `eval/interproscan-5.78-109.0/interproscan.sh -i <fasta> -f TSV -o
 
 ## 6. One-paragraph status
 
-ConditionalDPLM-2 (frozen DPLM-2 650M + 19.6M broadcast adapters + GO/IPR annotation embedding, CFG) trained 100K steps on 45K CFP-Gen proteins and fully evaluated on a self-validating 7-arm stack: **the conditioning signal is real but weak** (MRR/per-family-Δ peak at w=2, controls at chance), **function recovery is essentially absent** (IPR exactly 0 everywhere — audited genuine, dominated by a low-complexity antifreeze-repeat artifact; GO ≤0.037 vs 0.059 vanilla-unconditional and 0.223 real ceiling), and **adapter training displaced generation into a collapsed, composition-degenerate ESM-space region** that CFG only compositionally repairs. Diagnosis: capacity/mode-collapse first (→ LoRA run, which also tests the global-vs-local granularity asymmetry that GO-vs-IPR exposes), training-signal/checkpoint-selection second (→ checkpoint sweep + validation callback), data scale third. The eval stack, its controls, and the full issue history are committed and reproducible (~1 h/iteration on one 3090).
+*(Rewritten 2026-10-20 after the root-cause incident — supersedes the previous status paragraph.)* The project's mode collapse had a mundane root cause: the training config's `net.pretrain: false` silently skipped all pretrained-weight loading, so both trained checkpoints are 19.6M conditioning modules on a **randomly-initialized frozen encoder** — the observed poly-A attractor, displaced manifolds, and "weak but real" steering signal are all properties of that broken model, not of adapter-based conditioning. The bug is fixed (HF-id loading in `get_net_dplm2`, `pretrain: true` in both conditional configs) and the whole pipeline is now regression-tested by the Phase 0 gauntlet (21/21 green, [scripts/debug/phase0_gauntlet.py](scripts/debug/phase0_gauntlet.py)): pretrained-base bitwise identity, identity-at-init through forward/generation/infill, replicated-forward equivalence, adapter invocation census, null-path/eval-mode consistency, CFG degeneracy, and training-data round-trip. What survives: the self-validating eval stack, the audited data pipeline, the cluster tooling, and the experiment designs. What does not: every conditional-arm number in the committed reports. The immediate path is the instrumented fixed retrain on Karolina (checkpoint-cadence fix + Tier-1 callback first, then the 100K baseline, then a full eval re-run) per [plans/mode_collapse_debug_plan.md](plans/mode_collapse_debug_plan.md).

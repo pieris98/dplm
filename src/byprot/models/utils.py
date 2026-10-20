@@ -167,16 +167,29 @@ def get_net_dplm2(cfg):
             )
             net.lm_head.bias.data[:33] = pretrained_bias.data[:33]
         elif training_stage == "continue_train_from_dplm2":
-            assert is_local
             from byprot.models.dplm2.dplm2 import (
                 MultimodalDiffusionProteinLanguageModel,
             )
 
-            pretrained_net = (
-                MultimodalDiffusionProteinLanguageModel.from_pretrained(
-                    pretrained_model_name_or_path, from_huggingface=False
-                ).net
-            )
+            if is_local:
+                # Local training checkpoint (needs .hydra/config.yaml next to it).
+                pretrained_net = (
+                    MultimodalDiffusionProteinLanguageModel.from_pretrained(
+                        pretrained_model_name_or_path, from_huggingface=False
+                    ).net
+                )
+            else:
+                # HuggingFace repo id: load the released DPLM-2 directly.
+                # NOTE: this branch only runs with cfg.net.pretrain=True — with
+                # pretrain=False the net below stays randomly initialized and
+                # the pretrained weights are silently never loaded (the
+                # root cause of the 2026-10 mode-collapse incident; enforced
+                # by scripts/debug/phase0_gauntlet.py --check pretrained-base).
+                pretrained_net = (
+                    MultimodalDiffusionProteinLanguageModel.from_pretrained(
+                        pretrained_model_name_or_path, from_huggingface=True
+                    ).net
+                )
             if issubclass(type(pretrained_net), PeftModel):
                 pretrained_net = pretrained_net.merge_and_unload()
             pretrained_state_dict = pretrained_net.state_dict()
