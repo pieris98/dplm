@@ -499,6 +499,86 @@ def check_data_roundtrip(n_rows=300, seed=0):
            "collater annotations match source rows for 8 sampled rows")
 
 
+def check_grad_flow(model, device, n_rows=4):
+    """One real compute_loss + backward through the training path: adapter
+    params receive nonzero grads, base params receive none."""
+    import pandas as pd
+    from byprot.datamodules.dataset.annotated_protein import (
+        AnnotatedProteinCollater,
+        AnnotatedProteinDataset,
+    )
+
+    parquet = os.path.join(REPO, "data-bin/cfpgen_dplm2_joined/joined_train_safe.parquet")
+    ds = AnnotatedProteinDataset(parquet_path=parquet, max_len=128,
+                                 split_seed=0, val_ratio=0.05, split="train")
+    coll = AnnotatedProteinCollater(ds.tokenizer)
+    batch = coll([ds[i] for i in range(n_rows)])
+    device = next(model.parameters()).device
+    annotations = batch.pop("annotations")
+    annotations = {"annotations": {k: v.to(device) for k, v in annotations.items()}}
+    for track in ("struct_tokens", "aatype_tokens"):
+        batch[track] = {k: v.to(device) for k, v in batch[track].items()}
+
+    model.zero_grad(set_to_none=True)
+    model.train()
+    logits, targets, loss_masks, weights = model.compute_loss(
+        batch, weighting="linear", conditions=annotations)
+    from byprot.modules.cross_entropy import StructAARDMCrossEntropyLoss
+    criterion = StructAARDMCrossEntropyLoss(label_smoothing=0.0, ignore_index=1).to(device)
+    loss, _ = criterion(logits, targets, loss_masks, weights)
+    loss.backward()
+    model.eval()
+
+    adapter_grads, base_grads = [], []
+    for name, p in model.named_parameters():
+        if name.startswith("net."):
+            base_grads.append((name, p))
+        elif any(s in name for s in ("adapters_module", "annotation_embedder",
+                                     "annotation_projectors")):
+            adapter_grads.append((name, p))
+    n_adapter_with_grad = sum(1 for _, p in adapter_grads
+                              if p.grad is not None and p.grad.abs().sum() > 0)
+    base_with_grad = [n for n, p in base_grads if p.grad is not None]
+    ok = (n_adapter_with_grad == len(adapter_grads)
+          and len(adapter_grads) > 0 and not base_with_grad)
+    report("grad-flow", ok,
+           f"{n_adapter_with_grad}/{len(adapter_grads)} conditioning params got "
+           f"nonzero grads; base params with grads: {len(base_with_grad)} "
+           f"(loss={loss.item():.3f}, requires_grad(base) all False: "
+           f"{not any(p.requires_grad for _, p in base_grads)})")
+
+
+def check_source_labels(n_rows=200, seed=0):
+    """Joined parquet labels must match the CFP-Gen source pkl by accession —
+    the join is by UniProt accession, and a mis-join would silently scramble
+    the conditioning signal."""
+    import numpy as np
+    import pandas as pd
+    import pickle
+
+    parquet = os.path.join(REPO, "data-bin/cfpgen_dplm2_joined/joined_train_safe.parquet")
+    pkl = "/home/cherry/dev/phd/cfpgen/data-bin/uniprotKB/cfpgen_general_dataset/train.pkl"
+    if not os.path.exists(pkl):
+        report("source-labels", False, f"CFP-Gen train.pkl not found at {pkl}")
+        return
+    cfp = {x["uniprot_id"]: x for x in pickle.load(open(pkl, "rb"))}
+    df = pd.read_parquet(parquet, columns=["uniprot_id", "ipr_mapped", "go_f_mapped"])
+    rng = np.random.default_rng(seed)
+    idxs = rng.choice(len(df), size=min(n_rows, len(df)), replace=False)
+    mism = 0
+    for i in idxs:
+        row = df.iloc[int(i)]
+        src = cfp.get(row["uniprot_id"])
+        if src is None:
+            mism += 1
+            continue
+        if (list(row["ipr_mapped"]) != list(src.get("ipr_mapped") or [])
+                or list(row["go_f_mapped"]) != list(src.get("go_f_mapped") or [])):
+            mism += 1
+    report("source-labels", mism == 0,
+           f"{len(idxs)} rows vs CFP-Gen train.pkl: label mismatches={mism}")
+
+
 CHECKS = {
     "pretrained-base": lambda dev: check_pretrained_base(dev),
     "identity": lambda dev: check_identity(_MODEL["m"], dev),
@@ -506,7 +586,9 @@ CHECKS = {
     "adapter-census": lambda dev: check_adapter_census(_MODEL["m"], dev),
     "null-path": lambda dev: check_null_path(_MODEL["m"], dev),
     "cfg-degeneracy": lambda dev: check_cfg_degeneracy(_MODEL["m"], dev),
+    "grad-flow": lambda dev: check_grad_flow(_MODEL["m"], dev),
     "data-roundtrip": lambda dev: check_data_roundtrip(),
+    "source-labels": lambda dev: check_source_labels(),
 }
 
 _MODEL = {"m": None}

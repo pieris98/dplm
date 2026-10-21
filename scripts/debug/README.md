@@ -13,7 +13,7 @@ python scripts/debug/phase0_gauntlet.py --check pretrained-base   # the root-cau
 ```
 
 All checks are local-GPU (fits a 24 GB card, fp32). Exit code 1 on any failure.
-Current state: **21/21 green** (2026-10-20, after the pretrained-loading fix).
+Current state: **23/23 green** (2026-10-20, after the pretrained-loading fix).
 
 **Run this gauntlet after any change to** `get_net_dplm2`, the conditional model
 classes, the configs, the collater/dataset, or before launching any training run.

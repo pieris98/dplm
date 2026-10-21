@@ -1,7 +1,7 @@
 # Mode-collapse debug plan (revised priorities — 2026-10-20)
 
 Status: **RESOLVED 2026-10-20 — root cause found on day one of Phase 0; it was a code bug.**
-Phase 0 is complete (21/21 gauntlet checks green), Phases 1–2 are moot as written,
+Phase 0 is complete (23/23 gauntlet checks green), Phases 1–2 are moot as written,
 Phase 3 is the immediate path. See the Resolution section below; the original
 phases are retained for the record.
 
@@ -33,7 +33,7 @@ likely set to silence that assert.
 branch ([models/utils.py](../src/byprot/models/utils.py)); `pretrain: true` in
 both conditional configs; regression test in the Phase 0 gauntlet
 ([scripts/debug/phase0_gauntlet.py](../scripts/debug/phase0_gauntlet.py),
-21/21 green on the fixed path — pretrained-base 573/573 tensors bitwise, identity-at-init
+23/23 green on the fixed path — pretrained-base 573/573 tensors bitwise, identity-at-init
 across forward/generation/infill, parent-body equivalence, adapter census 33/66/0,
 null-path + eval-mode, CFG w∈{0,4}, training-data round-trip).
 
@@ -119,7 +119,7 @@ hypothesis framework. The queued Karolina 100K rerun was **gated** on Phases 0�
 
 ## Phase 0 — code-correctness gauntlet ("is it a bug in code?") — ✅ DONE 2026-10-20
 
-**Outcome: root cause found and fixed; 21/21 checks green** on the fixed path
+**Outcome: root cause found and fixed; 23/23 checks green** on the fixed path
 ([scripts/debug/phase0_gauntlet.py](../scripts/debug/phase0_gauntlet.py)).
 P0.0 (`pretrained-base`) was the check that caught the incident. P0.7 (scorer
 re-run on committed outputs) remains available as a documented command. The two
