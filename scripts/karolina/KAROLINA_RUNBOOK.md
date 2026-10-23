@@ -154,6 +154,8 @@ scripts/karolina/interactive.sh alloc       # whole node for training debugging
 
 | Symptom | Fix |
 |---|---|
+| srun: `SLURM_MEM_PER_CPU, SLURM_MEM_PER_GPU, and SLURM_MEM_PER_NODE are mutually exclusive` | you submitted from inside an interactive allocation (`evalsh`/`check` set `--mem`) and `--export=ALL` leaked the mem spec into the job. Fixed in-script (the multinode sbatch unsets the trio before srun) — `git pull` and resubmit. Also `scancel` the chained follow-up job the resubmit machinery fired |
+| **`disk quota exceeded` during an apptainer build/pull** | Apptainer caches docker layers in `~/.apptainer/cache` (HOME = 25 GB; the dplm image's layers are ~20–30 GB). Free it: `rm -rf ~/.apptainer/cache ~/.singularity/cache`, then point cache+temp at scratch — `export APPTAINER_CACHEDIR=$DPLM_BASE/apptainer_cache APPTAINER_TMPDIR=$DPLM_BASE/apptainer_tmp` — and retry (`setup_data.sh` now does this itself) |
 | **`disk quota exceeded` during an apptainer build/pull** | Apptainer caches docker layers in `~/.apptainer/cache` (HOME = 25 GB; the dplm image's layers are ~20–30 GB). Free it: `rm -rf ~/.apptainer/cache ~/.singularity/cache`, then point cache+temp at scratch — `export APPTAINER_CACHEDIR=$DPLM_BASE/apptainer_cache APPTAINER_TMPDIR=$DPLM_BASE/apptainer_tmp` — and retry (`setup_data.sh` now does this itself) |
 | `sbatch: error: Invalid account or partition` | wrong `ACCOUNT` or no GPU allocation left on the project |
 | apptainer oddities (mount/exec flakes) | `ml -f XALT` in that shell, retry; sandbox dirs (not SIF) are the preferred image format here too |
