@@ -108,6 +108,14 @@ trap 'resubmit || true; exit 0' TERM
 # The ALLOCATION used the canonical --gpus form (no per-task gres binding), so
 # the srun step binds 1 GPU per task explicitly. CPU/memory shares come from
 # IT4I's per-part defaults (16 cores/8 parts) — do not pin them.
+#
+# Memory-env guard: submitting from INSIDE an interactive allocation (evalsh/
+# check use --mem=48G; alloc uses per-GPU defaults) leaks SLURM_MEM_PER_* into
+# this environment via --export=ALL, and srun then dies with
+# "SLURM_MEM_PER_CPU, SLURM_MEM_PER_GPU, and SLURM_MEM_PER_NODE are mutually
+# exclusive" against IT4I's per-part GPU memory. Unset the trio (and a stale
+# cpus hint) so the step takes the partition defaults.
+unset SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU SLURM_MEM_PER_NODE SLURM_CPUS_PER_TASK
 chmod +x "${ROOT_DIR}/scripts/karolina/train_rank.sh"
 set +e
 srun --ntasks-per-node=8 --gpus-per-task=1 \
