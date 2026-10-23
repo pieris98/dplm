@@ -189,6 +189,18 @@ CONTAINER_ARGS=(
   --pwd /workspace/dplm
 )
 
+# DDP rank env (multi-node srun launcher): --cleanenv strips the host env, so
+# rank/scheduler vars must be forwarded explicitly or every task computes its
+# own world (num_nodes × devices) instead of joining the SLURM one — 16 ranks
+# then become 8 rogue 2-process groups (first smoke, job 5259770). Guarded:
+# single-node / interactive paths that don't set them are unchanged.
+for _v in RANK LOCAL_RANK WORLD_SIZE NODE_RANK \
+          SLURM_JOB_ID SLURM_PROCID SLURM_LOCALID SLURM_NTASKS \
+          SLURM_NNODES SLURM_NODEID SLURM_JOB_NODELIST; do
+  if [[ -n "${!_v:-}" ]]; then CONTAINER_ARGS+=(--env "$_v=${!_v}"); fi
+done
+unset _v
+
 # Optional eval-stack binds (present only after the eval assets are synced to
 # this checkout): read-only predictor/asset inputs under eval/, writable
 # eval_runs/ output dir, and pure-python deps (obonet) pip-installed with
