@@ -30,10 +30,9 @@ echo "[rank $RANK/$WORLD_SIZE] node=$(hostname -s) local=$LOCAL_RANK cuda=$CUDA_
 # each of these processes IS one device of that world.
 run_in_container "$DPLM_PY" train.py \
   experiment=dplm2/cond_dplm2_650m_cfpgen_meluxina \
-  trainer=meluxina_ddp_bf16 \
-  trainer.num_nodes=1 \
-  trainer.devices=1 \
+  trainer=karolina_ddp_bf16 \
   datamodule.max_tokens="${MT}" \
   trainer.max_steps="${MAX_STEPS}" \
   logger=wandb logger.wandb.offline=True \
+  train.test=false \
   ${RESUME_ARGS:-} ${HYDRA_ARGS:-}

@@ -129,8 +129,10 @@ STEPS_DONE=0
 if LATEST_CKPT="$(find_latest_ckpt)"; then
   STEPS_DONE="$(echo "$LATEST_CKPT" | grep -oE 'step[=_][0-9]+' | grep -oE '[0-9]+' | tail -1)"; STEPS_DONE="${STEPS_DONE:-0}"
 fi
-if (( STEPS_DONE >= MAX_STEPS )); then
-  echo "[ddp] DONE — reached ${STEPS_DONE} steps: ${LATEST_CKPT}"
+if (( STEPS_DONE + 1 >= MAX_STEPS )); then
+  # +1: PL global_step is 0-indexed in ckpt filenames — max_steps=20 lands as
+  # step_19.0-loss_*.ckpt, which read 19 < 20 and chained forever (smoke 5259770).
+  echo "[ddp] DONE — reached $((STEPS_DONE + 1))/${MAX_STEPS} steps: ${LATEST_CKPT}"
   exit 0
 fi
 echo "[ddp] at ${STEPS_DONE}/${MAX_STEPS} steps (rc=${TRAIN_RC}) — chaining next chunk"
