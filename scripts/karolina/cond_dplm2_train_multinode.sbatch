@@ -23,11 +23,15 @@
 # (e.g. -N2 → 16 ranks × 1000). One task per GPU; Lightning drives each rank
 # via env-init DDP (RANK/LOCAL_RANK/WORLD_SIZE/MASTER_* exported below).
 #
-# Smoke first (validates DDP handshake in ~10 min):
-#   ACCOUNT=eu-26-85 MAX_STEPS=20 sbatch --export=ALL -N2 -t 00:40:00 \
-#     scripts/karolina/cond_dplm2_train_multinode.sbatch
-# Full run:
-#   ACCOUNT=eu-26-85 sbatch --export=ALL scripts/karolina/cond_dplm2_train_multinode.sbatch
+# Smoke first (DDP handshake + conditioning probe + checkpoint cadence, ~15 min).
+# HYDRA_ARGS shrinks the probe/checkpoint intervals so both fire within 20 steps:
+#   ACCOUNT=eu-26-85 FRESH=1 MAX_STEPS=20 \
+#   HYDRA_ARGS='callbacks.conditioning_probe.probe_every_n_steps=5 callbacks.model_checkpoint.every_n_train_steps=10 trainer.val_check_interval=10' \
+#   sbatch --export=ALL -N2 -t 00:40:00 scripts/karolina/cond_dplm2_train_multinode.sbatch
+# Resume test (verifies auto-resume): resubmit the same command WITHOUT FRESH —
+# it must pick up step_20 and stop at DONE.
+# Full run (see KAROLINA_RUNBOOK.md pre-flight checklist first):
+#   ACCOUNT=eu-26-85 FRESH=1 sbatch --export=ALL scripts/karolina/cond_dplm2_train_multinode.sbatch
 #
 # Checkpoints/resume behave like the single-node script: highest-step ckpt is
 # auto-resumed; the job resubmits itself if it hits the wall below MAX_STEPS.
@@ -60,6 +64,12 @@ export MASTER_PORT="${MASTER_PORT:-29500}"
 echo "[ddp] MASTER_ADDR=${MASTER_ADDR} PORT=${MASTER_PORT}"
 
 # --- resume from the highest-step checkpoint ---------------------------------
+# FRESH=1 skips the scan entirely. Set it on the FIRST submission of a new
+# training campaign: the checkpoint scan globs cond_dplm2* under $DPLM_LOGS,
+# and the BROKEN pre-fix checkpoints (random-init encoder, 2026-10 incident —
+# see RESEARCH_STATE.md §0) must never be resumed. Quarantine them instead:
+#   mkdir -p "$DPLM_BASE/quarantine_broken_ckpt" && \
+#     find "$DPLM_LOGS" -path '*cond_dplm2*' -name '*.ckpt' -exec mv {} "$DPLM_BASE/quarantine_broken_ckpt/" \;
 find_latest_ckpt() {
   local f s best="" best_s=-1
   while IFS= read -r f; do
@@ -70,7 +80,10 @@ find_latest_ckpt() {
   return 1
 }
 RESUME_ARGS=""
-if LATEST_CKPT="$(find_latest_ckpt)"; then
+if [[ "${FRESH:-0}" == "1" ]]; then
+  export RESUME_ARGS=""
+  echo "[ddp] FRESH=1 — ignoring any existing checkpoints (fresh campaign start)"
+elif LATEST_CKPT="$(find_latest_ckpt)"; then
   echo "[ddp] resuming from: ${LATEST_CKPT}"
   export RESUME_ARGS="++trainer.resume_from_checkpoint=${LATEST_CKPT}"
 else

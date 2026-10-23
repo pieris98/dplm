@@ -80,6 +80,56 @@ squeue -u $USER
 
 Monitor: `tail -f logs/slurm/cond_dplm2_<id>.out`
 
+## 2b. Pre-flight checklist for the FIXED re-run (2026-10, post root-cause)
+
+The first training campaign trained on a **randomly-initialized frozen encoder**
+(`net.pretrain: false` skipped all weight loading — see RESEARCH_STATE.md §0).
+The fix + a 23-check regression gauntlet + the Tier-1 conditioning probe are in
+the repo since commits `206bf38`/`94ea51d`/`9e2f4c2`. Before (re)submitting:
+
+1. **Sync code** (repo is bind-mounted into the sandbox — no image rebuild):
+   `cd $DPLM_BASE/dplm-repo && git pull && git log --oneline -1` → expect `9e2f4c2` or newer.
+2. **Quarantine the broken checkpoints** — the auto-resume scan globs
+   `cond_dplm2*` under `$DPLM_LOGS`; the old random-encoder ckpts must not be
+   picked up (the sbatch now also supports `FRESH=1` as a belt-and-braces guard):
+   ```bash
+   mkdir -p "$DPLM_BASE/quarantine_broken_ckpt"
+   find "$DPLM_LOGS" -path '*cond_dplm2*' -name '*.ckpt' -not -path '*quarantine*' \
+     -exec mv {} "$DPLM_BASE/quarantine_broken_ckpt/" \; -print
+   ```
+3. **In-container gauntlet** (interactive; `scripts/karolina/interactive.sh check`
+   then `shell`, or `alloc`): run the environment-sensitive checks —
+   ```bash
+   $DPLM_PY scripts/debug/phase0_gauntlet.py --check pretrained-base identity grad-flow
+   ```
+   `pretrained-base` must report **573/573 tensors, max|diff|=0** on this
+   machine's HF cache. Full suite (23 checks) if anything changed.
+4. **Smoke** (DDP handshake + probe + checkpoint cadence, ~15 min on 2×8):
+   ```bash
+   ACCOUNT=$ACCOUNT FRESH=1 MAX_STEPS=20 \
+   HYDRA_ARGS='callbacks.conditioning_probe.probe_every_n_steps=5 callbacks.model_checkpoint.every_n_train_steps=10 trainer.val_check_interval=10' \
+   sbatch --export=ALL -N2 -t 00:40:00 scripts/karolina/cond_dplm2_train_multinode.sbatch
+   ```
+5. **Smoke tripwires** (from `logs/slurm/cond_dplm2_<id>.out`):
+   - startup val loss **must start ≈ vanilla level (~1.9–2.0)** — the broken
+     run started at 2.99; anything ≥ 2.5 → stop and investigate;
+   - `[cond_probe] step …` lines appear every 5 steps with
+     `a_frac ≈ 0.09–0.11`, `adapter_w ≈ 4.3e-3` (the 1e-5-init norm), and
+     `loss_delta ≈ 0` (near-zero adapters at init);
+   - `step_10-…`/`step_20-…` checkpoints written to `$DPLM_LOGS`.
+6. **Resume test**: resubmit the *same* command **without** `FRESH=1` — the log
+   must say `resuming from: …step_20-…` and finish with `DONE — reached 20 steps`.
+7. **Full run**: `ACCOUNT=$ACCOUNT FRESH=1 sbatch --export=ALL scripts/karolina/cond_dplm2_train_multinode.sbatch`
+   (100K steps, ~36 h × chunks on 2×8 A100). The self-resubmit chain does NOT
+   set FRESH, so chunks resume the fixed run's own checkpoints.
+   wandb: offline by default (`WANDB_MODE=offline`); sync afterwards from local:
+   `wandb sync $DPLM_BASE/dplm-logs/wandb/<run>`.
+8. **During the run** (probe cadence 2000): watch `probe/a_frac` (must stay
+   ≈ 0.09–0.12 — real composition), `probe/loss_delta` (should lift off 0 as
+   adapters learn), `probe/adapter_w` (grows slowly from 4.3e-3). Alarm fires
+   at a_frac > 0.25 on two consecutive probes after step 5K (`probe/alarm=1`,
+   loud log line; `alarm_abort=false` — it warns, not stops).
+
 ## 3. Evaluation
 
 ```bash

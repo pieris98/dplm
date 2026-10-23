@@ -3,7 +3,8 @@
 # Called by srun from cond_dplm2_train_multinode.sbatch — one task per GPU.
 # Expects from the environment (exported by the parent sbatch):
 #   MAX_STEPS, MT (max_tokens/rank), RESUME_ARGS (optional space-separated
-#   hydra overrides), MASTER_ADDR, MASTER_PORT, WANDB_MODE, ACCOUNT.
+#   hydra overrides), HYDRA_ARGS (optional extra hydra overrides, e.g. probe
+#   tuning for the smoke), MASTER_ADDR, MASTER_PORT, WANDB_MODE, ACCOUNT.
 set -Eeuo pipefail
 ROOT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
 cd "${ROOT_DIR}"
@@ -22,4 +23,4 @@ exec run_in_container "$DPLM_PY" train.py \
   datamodule.max_tokens="${MT}" \
   trainer.max_steps="${MAX_STEPS}" \
   logger=wandb logger.wandb.offline=True \
-  ${RESUME_ARGS:-}
+  ${RESUME_ARGS:-} ${HYDRA_ARGS:-}

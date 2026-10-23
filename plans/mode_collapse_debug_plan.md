@@ -307,14 +307,18 @@ forensic toolkit runs as designed.
 
 ## Open items
 
-- wandb online vs offline on Karolina (open decision from the 10-19/20 log) —
-  the callback depends on it; resolve before the smoke.
+- ~~wandb online vs offline on Karolina~~ — **resolved: offline** (runbook
+  default; `train_rank.sh` passes `logger.wandb.offline=True`; sync from local
+  with `wandb sync`).
+- Sync to Karolina: fix + callback + gauntlet pushed to `origin/main`
+  (`206bf38`/`94ea51d`/`9e2f4c2`); on the cluster: `git pull`, then the
+  pre-flight checklist (KAROLINA_RUNBOOK.md §2b — quarantine broken ckpts,
+  in-container gauntlet, smoke with probe override, resume test, then the
+  100K run with `FRESH=1`).
 - Decide disposition of the broken checkpoints
   (`logs/cond_dplm2_650m_cfpgen/checkpoints/step_{79999,99999}`): keep for
   forensics/teaching, but they must not back any paper claim; consider a README
   marker in that directory.
-- Sync state: the fix (loader + configs + gauntlet) lives in the local repo —
-  push/commit so the Karolina setup pulls it before any relaunch.
 - P0.7 (scorer re-run on committed fn_eval_v1 outputs) — documented command,
   not yet executed; cheap regression guard for the eval stack.
 - Trainer uses no EMA (verified — no EMA in trainer/callback configs), so
