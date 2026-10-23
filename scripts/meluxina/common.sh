@@ -189,14 +189,14 @@ CONTAINER_ARGS=(
   --pwd /workspace/dplm
 )
 
-# DDP rank env (multi-node srun launcher): --cleanenv strips the host env, so
-# rank/scheduler vars must be forwarded explicitly or every task computes its
-# own world (num_nodes × devices) instead of joining the SLURM one — 16 ranks
-# then become 8 rogue 2-process groups (first smoke, job 5259770). Guarded:
-# single-node / interactive paths that don't set them are unchanged.
-for _v in RANK LOCAL_RANK WORLD_SIZE NODE_RANK \
-          SLURM_JOB_ID SLURM_PROCID SLURM_LOCALID SLURM_NTASKS \
-          SLURM_NNODES SLURM_NODEID SLURM_JOB_NODELIST; do
+# DDP rank env (multi-node srun launcher): --cleanenv strips the host env.
+# Forward ONLY the five torch env-init vars. Deliberately NOT SLURM_*: with
+# SLURM_JOB_ID visible, Lightning switches to SLURMEnvironment, which demands
+# ntasks-per-node == devices (it wants to spawn them itself) and rejects our
+# one-task-per-GPU pattern ("devices=1 but --ntasks-per-node=8", smoke job
+# 5259788 follow-up). With only the torch vars, Lightning falls back to
+# _DefaultEnvironment and joins the env:// world of WORLD_SIZE directly.
+for _v in RANK LOCAL_RANK WORLD_SIZE MASTER_ADDR MASTER_PORT; do
   if [[ -n "${!_v:-}" ]]; then CONTAINER_ARGS+=(--env "$_v=${!_v}"); fi
 done
 unset _v

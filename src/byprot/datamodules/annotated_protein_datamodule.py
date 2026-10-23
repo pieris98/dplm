@@ -19,11 +19,23 @@ from byprot.datamodules.dataset.annotated_protein import (
 from byprot.datamodules.dataset.tokenized_protein import DPLM2Tokenizer
 
 
-def _length_based_sampler(dataset, max_tokens, max_len, shuffle):
+def _length_based_sampler(dataset, max_tokens, max_len, shuffle, rank_offset: int = 0):
     """Greedy batch sampler: keep adding samples until either max_tokens
-    tokens or max_len * (current_batch_size+1) tokens would be exceeded."""
+    tokens or max_len * (current_batch_size+1) tokens would be exceeded.
+
+    ``rank_offset`` (per-rank data sharding): with the plain global-RNG
+    permutation every DDP rank draws the SAME batch sequence, so the effective
+    batch is one rank's tokens, not their sum (the 2026-10 finding — the
+    Meluxina baseline silently trained at 4K effective, not 16K). With an
+    offset, each rank draws an independent permutation (seeded from the
+    advanced global RNG + rank, so epochs still differ and resume stays
+    deterministic under the fixed base seed)."""
     lens = dataset.get_metadata_lens()
     indices = list(torch.randperm(len(lens)).tolist()) if shuffle else list(range(len(lens)))
+    if shuffle and rank_offset:
+        g = torch.Generator().manual_seed(
+            torch.randint(2 ** 31, (1,)).item() + rank_offset * 7919)
+        indices = list(torch.randperm(len(lens), generator=g).tolist())
     batches = []
     cur = []
     cur_max = 0
@@ -56,6 +68,7 @@ class AnnotatedProteinDataModule(LightningDataModule):
         num_workers: int = 4,
         val_ratio: float = 0.05,
         split_seed: int = 0,
+        shard_batches_across_ranks: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -85,8 +98,17 @@ class AnnotatedProteinDataModule(LightningDataModule):
 
     def _make_loader(self, dataset, shuffle):
         from torch.utils.data import BatchSampler
+
+        rank_offset = 0
+        if shuffle and getattr(self.hparams, "shard_batches_across_ranks", False):
+            from torch.distributed import is_initialized, get_rank
+
+            rank_offset = get_rank() if is_initialized() else int(
+                os.environ.get("RANK", os.environ.get("SLURM_PROCID", 0))
+            )
         batches = _length_based_sampler(
-            dataset, self.hparams.max_tokens, self.hparams.max_len, shuffle
+            dataset, self.hparams.max_tokens, self.hparams.max_len, shuffle,
+            rank_offset=rank_offset,
         )
         return DataLoader(
             dataset,

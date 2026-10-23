@@ -38,6 +38,11 @@ datamodule:
   max_len: 512
   num_workers: 4
   val_ratio: 0.05
+  # DECISION PENDING (see mode_collapse_debug_plan.md): without this, every DDP
+  # rank draws the identical batch sequence and the effective batch equals one
+  # rank's tokens, not their sum (the old "16K parity" was 4K effective on
+  # Meluxina, would be 1K on 16 ranks). Flip to true for the fixed campaign.
+  shard_batches_across_ranks: false
   split_seed: 0
 
 model:
