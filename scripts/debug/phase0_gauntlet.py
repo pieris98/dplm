@@ -64,6 +64,11 @@ def report(name: str, ok: bool, detail: str = ""):
     print(f"[{status}] {name}" + (f" — {detail}" if detail else ""))
 
 
+def report_skip(name: str, detail: str = ""):
+    """Check inapplicable in this environment (not counted either way)."""
+    print(f"[SKIP] {name}" + (f" — {detail}" if detail else ""))
+
+
 # ---------------------------------------------------------------------------
 # Model construction
 # ---------------------------------------------------------------------------
@@ -557,9 +562,13 @@ def check_source_labels(n_rows=200, seed=0):
     import pickle
 
     parquet = os.path.join(REPO, "data-bin/cfpgen_dplm2_joined/joined_train_safe.parquet")
-    pkl = "/home/cherry/dev/phd/cfpgen/data-bin/uniprotKB/cfpgen_general_dataset/train.pkl"
+    pkl = os.environ.get(
+        "CFPGEN_TRAIN_PKL",
+        "/home/cherry/dev/phd/cfpgen/data-bin/uniprotKB/cfpgen_general_dataset/train.pkl",
+    )
     if not os.path.exists(pkl):
-        report("source-labels", False, f"CFP-Gen train.pkl not found at {pkl}")
+        report_skip("source-labels",
+                    f"CFP-Gen train.pkl not present here ({pkl}); local-only check")
         return
     cfp = {x["uniprot_id"]: x for x in pickle.load(open(pkl, "rb"))}
     df = pd.read_parquet(parquet, columns=["uniprot_id", "ipr_mapped", "go_f_mapped"])
