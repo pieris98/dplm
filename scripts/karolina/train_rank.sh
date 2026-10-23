@@ -8,14 +8,18 @@
 set -Eeuo pipefail
 ROOT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
 cd "${ROOT_DIR}"
-source scripts/meluxina/common.sh >/dev/null 2>&1
+# keep stderr visible: a silently-failed source cost us a debug cycle
+source scripts/meluxina/common.sh
 
 export RANK="${SLURM_PROCID:-0}"
 export LOCAL_RANK="${SLURM_LOCALID:-0}"
 export WORLD_SIZE="${SLURM_NTASKS:-1}"
 
 echo "[rank $RANK/$WORLD_SIZE] node=$(hostname -s) local=$LOCAL_RANK cuda=$CUDA_VISIBLE_DEVICES"
-exec run_in_container "$DPLM_PY" train.py \
+# NOTE: run_in_container is a bash FUNCTION from common.sh (retry-wrapped
+# apptainer exec) — never `exec` it (exec only launches binaries → exit 127;
+# bit us on the first smoke, job 5259738).
+run_in_container "$DPLM_PY" train.py \
   experiment=dplm2/cond_dplm2_650m_cfpgen_meluxina \
   trainer=meluxina_ddp_bf16 \
   trainer.num_nodes="${SLURM_NNODES:-1}" \
