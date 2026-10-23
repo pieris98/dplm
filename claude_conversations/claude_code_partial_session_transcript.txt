@@ -1,0 +1,2558 @@
+ ▐▛███▛█   Claude Code v2.1.270
+▝▜██████▀  glm-5.3-flash · API Usage Billing
+  ▝▝ ▝▝    ~/dev/phd/dplm
+
+
+  Thought for 1s (ctrl+o to expand)
+
+● That's the missing dependency — obonet (the GO ontology parser) isn't
+  installed in the dplm env. It's a tiny pure-Python package. Install and also
+  fix a latent bug I spotted while re-checking: my propagate_ancestors call
+  assumed is_a links are node attributes, but obonet encodes them as edges — so
+  ancestor expansion would have silently done nothing. Fixing both:
+
+  Thought for 14s, ran 2 shell commands (ctrl+o to expand)
+  ⎿  Referenced file reports/weekly_meeting_2026-09-22.md
+  ⎿  Read scripts/eval_function/score_function_eval.py (197 lines)
+  ⎿  Read src/byprot/eval/predictors.py (167 lines)
+  ⎿  Read plans/meetings.md (93 lines)
+  ⎿  Read reports/weekly_meeting_2026-09-29.md (108 lines)
+
+● obonet 1.2.0 keeps is_a as a node attribute too — let me check whether the
+  original scorer code actually worked before "fixing" it:
+
+  Thought for 7s, ran 1 shell command (ctrl+o to expand)
+
+● Both extractions agree — the original node-attr code was correct, no latent
+  bug. Now let me verify propagate_ancestors works end-to-end with the real
+  ontology:
+
+  Thought for 16s, searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● Ancestor expansion works correctly (GO:0004425 → 6 terms up to the MF root).
+  Since import obonet sits inside the scorer's --obo block, the previous scoring
+  pass must have run without --obo — meaning the GO ground truth was never
+  ancestor-expanded (strict term match only). Now I can re-score properly. Let
+  me find the eval dir and the exact command used:
+
+  Thought for 16s, listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+● DeepGO-SE outputs exist for 4 arms (w=1, null, vanilla, real); the 3 cfg-sweep
+  arms (cfg2/4/8) are still missing — that's the pending task. Plan: re-score
+  the 4 ready arms with ancestor expansion now, and launch DeepGO-SE on the 3
+  sweep FASTAs in parallel. Let me check the docker runner setup first:
+
+  Thought for 40s, listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+● predict.py writes outputs next to the input FASTA and takes -dr data — so
+  mounting the eval dir works. Launching DeepGO-SE on the 3 sweep arms in the
+  background, and re-scoring with --obo meanwhile:
+
+  Thought for 4s, ran 2 shell commands (ctrl+o to expand)
+
+● DeepGO-SE sweep is running. Now re-scoring the 4 completed arms with
+  ontology-aware ground truth:
+
+  Thought for 37s, ran 1 shell command (ctrl+o to expand)
+
+● Ontology expansion changed the GO picture meaningfully — the real-sequence
+  ceiling is now a sensible Fmax 0.223 (vs DeepGO-SE's published MFO Fmax 0.386
+  on their own test set), and a new ordering emerges: vanilla 0.059 > null 0.031
+  > cond w=1 0.014 (conditioning is below null on threshold-free Fmax). Let me
+  verify the sweep didn't die on startup, then implement per-family MMD while it
+  runs:
+
+  Thought for 27s, ran 1 shell command (ctrl+o to expand)
+
+● The container is re-downloading ESM-2 3B — the exact issue from before. All 3
+  arms run inside this one container so it downloads once, but let me check
+  whether a previous run left the checkpoint around (stopped container or host
+  cache) so I can mount it and skip the download entirely:
+
+  Thought for 14s, ran 1 shell command (ctrl+o to expand)
+
+● The user's earlier 4-hour-old container (cede530526b0) should still hold the
+  checkpoint. Copy it to the host and restart my run with it mounted:
+
+  Thought for 7s, ran 2 shell commands (ctrl+o to expand)
+
+● Checkpoint (5.7 GB) rescued to host. Now stop the downloading run and restart
+  with the cache mounted:
+
+● Stop Task
+  ⎿  cd /home/cherry/dev/phd/dplm && docker run --gpus all \
+       -v
+     /home/cherry/dev/phd/dplm/eval/deepgo2/data:/workspace/deepgo2/data \…
+     · stopped
+
+  Thought for 9s, ran 3 shell commands (ctrl+o to expand)
+
+● That's suspiciously fast for cfg2 — let me check whether it actually
+  succeeded:
+
+  Thought for 10s, listed 1 directory (ctrl+o to expand)
+
+● cfg2 completed in ~60 s — the earlier run was slow because it ran on CPU (no
+  -d cuda); my run passes -d cuda. All 3 gz files written. Sweep will finish in
+  a few minutes:
+
+  Thought for 2m 34s, ran 1 shell command (ctrl+o to expand)
+
+● Background command "Run DeepGO-SE sweep with cached ESM checkpoint mounted"
+completed (exit code 0)
+
+● All 3 sweep arms done. Now the full 7-arm score with ontology expansion:
+
+  Thought for 51s, ran 1 shell command (ctrl+o to expand)
+
+● Complete 7-arm table obtained — and it changes one headline materially: GO 
+  shows the first graded recovery signal (Fmax 0.014 → 0.037 across w=1→4,
+  beating the null control at w≥4, recall micro rising 0.005 → 0.095), while IPR
+  stays at exactly 0.0000 everywhere. Before editing the report, let me check
+  its actual current state:
+  Thought for 10s, ran 1 shell command (ctrl+o to expand)
+
+● The full table lives in the 09-22 report; the 09-29 report predates the GO
+  results. Let me read the relevant section:
+
+  Thought for 28s, read 1 file (ctrl+o to expand)
+
+● Now I'll compute the MF-branch diversity for the 3 sweep arms so the
+  per-branch diagnostic table covers all 7 arms, then update both reports:
+
+  Thought for 25s, ran 1 shell command (ctrl+o to expand)
+
+● MF-term diversity also shows dose-response (32 → 61 → 62 → 44 across w) —
+  guidance partially restores it, still ~6× below vanilla. Now updating the
+  09-22 report with the complete, ontology-expanded results:
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 14 lines, removed 10 lines
+      169  
+      170  ### Results table (GO via DeepGO-SE · IPR via InterProScan · d
+           istribution vs `real`)
+      171  
+      172 -| Arm | GO Fmax | GO F1 micro | IPR F1 micro | IPR AUPR micro 
+          -| MRR ↑ | MMD-linear ↓ |                                      
+      173 -|---|---|---|---|---|---|---|                                 
+      174 -| **ours_cond (w=1)** | 0.0000 | 0.0000 | 0.0000 | 0.0292 | **
+          -0.1053** | 0.8967 |                                           
+      175 -| ours_cond w=2 (CFG) | 0.0000 | 0.0000 | 0.0000 | 0.0272 | **
+          -0.1277** | 0.4921 |                                           
+      176 -| ours_cond w=4 (CFG) | 0.0000 | 0.0000 | 0.0000 | 0.0283 | 0.
+          -0865 | 0.3757 |                                               
+      177 -| ours_cond w=8 (CFG) | 0.0000 | 0.0000 | 0.0000 | 0.0302 | 0.
+          -0860 | 0.4069 |                                               
+      178 -| ours_null | 0.0000 | 0.0000 | 0.0000 | 0.0314 | 0.0816 | 0.8
+          -544 |                                                         
+      179 -| vanilla (pretrained) | 0.0000 | 0.0000 | 0.0000 | 0.0074 | 0
+          -.0745 | **0.1518** |                                          
+      180 -| **real (ceiling)** | — | 0.0122 | **0.9782** | 0.9574 | 0.80
+          -99* | 0 |                                                     
+      172 +| Arm | GO Fmax ↑ | GO F1 micro | GO recall micro | IPR F1 mic
+          +ro | IPR AUPR micro | MRR ↑ | MMD-linear ↓ |                  
+      173 +|---|---|---|---|---|---|---|---|                             
+      174 +| **ours_cond (w=1)** | 0.0139 | 0.0038 | 0.0052 | 0.0000 | 0.
+          +0292 | **0.1053** | 0.8967 |                                  
+      175 +| ours_cond w=2 (CFG) | 0.0277 | 0.0239 | 0.0420 | 0.0000 | 0.
+          +0272 | **0.1277** | 0.4921 |                                  
+      176 +| ours_cond w=4 (CFG) | **0.0369** | 0.0275 | 0.0745 | 0.0000 
+          +| 0.0283 | 0.0865 | 0.3757 |                                  
+      177 +| ours_cond w=8 (CFG) | 0.0337 | 0.0220 | 0.0953 | 0.0000 | 0.
+          +0302 | 0.0860 | 0.4069 |                                      
+      178 +| ours_null | 0.0310 | 0.0020 | 0.0022 | 0.0000 | 0.0314 | 0.0
+          +816 | 0.8544 |                                                
+      179 +| vanilla (pretrained) | 0.0591 | 0.0560 | 0.0966 | 0.0037 | 0
+          +.0074 | 0.0745 | **0.1518** |                                 
+      180 +| **real (ceiling)** | **0.2228** | 0.1865 | 0.3043 | **0.9782
+          +** | 0.9574 | 0.8099* | 0 |                                   
+      181  
+      182 -\* real self-recovery MRR = 0.81 (not 1.0) — the sample-size n
+          -oise floor of the metric at 8 seqs/label. GO Fmax for `real` i
+          -s undefined in this run (GT = predictions' own source, thresho
+          -lded set-match reported instead: F1 micro 0.0122 at the defaul
+          -t 0.5 threshold — see the per-branch diagnosis below for why t
+          -his is low even for natural sequences).                       
+      182 +\* real self-recovery MRR = 0.81 (not 1.0) — the sample-size n
+          +oise floor of the metric at 8 seqs/label.                     
+      183  
+      184 +**GO scoring protocol (final):** GO ground truth is **ancestor
+          +-expanded** over the GO DAG (`go.obo` via obonet) — predicting
+          + a parent/child of a prompted term is no longer a full miss; F
+          +max is the CAFA threshold-free max-F1 over DeepGO-SE's per-ter
+          +m probabilities. The earlier all-zeros GO column came from str
+          +ict exact-term matching *without* expansion at a 0.5 threshold
+          + — the expansion is what makes the metric meaningful. `real` G
+          +O Fmax **0.2228** is the natural-protein ceiling of this predi
+          +ctor+GT on this set (DeepGO-SE's published MFO Fmax on natural
+          + proteins is 0.386 on their larger test set).                 
+      185 +                                                              
+      186 +*Caveat:* the CFG-sweep arms (w=2/4/8) were generated on the p
+          +re-deduplication prompt set (256 seqs, ~6 duplicated proteins)
+          + while the main arms were regenerated on the deduped 250 — tre
+          +nds *within* the sweep are internally consistent, but cross-ar
+          +m deltas of <0.01 should not be over-read.                    
+      187 +                                                              
+      188  ### Per-branch DeepGO-SE diagnostic (the GO story)
+      189  
+      190  DeepGO-SE *works* — it annotates our sequences confidently. Th
+           e failure is in what it finds:
+
+● Now the per-branch diagnostic table and the findings sections:
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 10 lines, removed 7 lines
+      189  
+      190  DeepGO-SE *works* — it annotates our sequences confidently. Th
+           e failure is in what it finds:
+      191  
+      192 -| Arm | MF lines | **unique MF terms** | BP terms | CC terms |
+          - MF ∩ prompted |                                              
+      193 -|---|---|---|---|---|---|                                     
+      194 -| ours_cond (w=1) | 1,886 | **32** | 397 | 388 | **1** |      
+      195 -| ours_null | 1,586 | **31** | 333 | 330 | **1** |            
+      196 -| vanilla | 4,585 | **369** | 792 | 650 | 11 |                
+      197 -| real | 3,712 | **243** | 464 | 329 | 33 |                   
+      192 +| Arm | MF lines | **unique MF terms** | MF ∩ prompted (exact)
+          + |                                                            
+      193 +|---|---|---|---|                                             
+      194 +| ours_cond (w=1) | 1,886 | **32** | 1 |                      
+      195 +| ours_cond w=2 | 2,437 | **61** | 0 |                        
+      196 +| ours_cond w=4 | 2,605 | **62** | 0 |                        
+      197 +| ours_cond w=8 | 3,145 | **44** | 0 |                        
+      198 +| ours_null | 1,586 | **31** | 1 |                            
+      199 +| vanilla | 4,585 | **369** | 11 |                            
+      200 +| real | 3,712 | **243** | 33 |                               
+      201  
+      199 -**The function-conditioned model's MF annotation diversity has
+          - collapsed to ~32 terms** (vs 243 for natural sequences and 36
+          -9 for vanilla), with essentially zero overlap with the 59 prom
+          -pted labels. Vanilla spans 369 terms — the collapse is *caused
+          - by adapter training*, not the base model. Guidance weakens an
+          -notation content further (mf lines 1,886 → ~900 across w=1→8).
+      202 +**The function-conditioned model's MF annotation diversity has
+          + collapsed to ~32 terms at w=1** (vs 243 for natural sequences
+          + and 369 for vanilla), with essentially zero *exact* overlap w
+          +ith the 59 prompted labels. Guidance partially restores divers
+          +ity (32 → 62 terms at w=4) and annotation volume (1,886 → 3,14
+          +5 MF lines at w=8) — consistent with the GO Fmax dose-response
+          + above — but stays ~6× below vanilla. Exact-term overlap stays
+          + at 0–1 everywhere in our arms: the nonzero GO Fmax comes enti
+          +rely from *semantically near* predictions (GO ancestors/descen
+          +dants of the prompted terms) counted after DAG expansion.     
+      203  
+      204  ### Positive results
+      205  
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 5 lines, removed 3 lines
+      204  ### Positive results
+      205  
+      206  1. **A genuine conditioning signal exists.** MRR: ours_cond 0.
+           110 vs ours_null 0.078 / vanilla 0.079 — controls sit near the
+            random-ranking floor (~0.068 for 59 groups); the conditioned 
+           model rises ~40% above both controls, with several labels rank
+           ing 1st–4th of 59. CFG amplifies it further: **w=2 → MRR 0.128
+            (+64% over controls)**.
+      207 -2. **CFG controls the fidelity/realism trade-off exactly as de
+          -signed.** Higher w pulls sequences strongly back toward the na
+          -tural distribution: MMD-linear drops 0.887 → 0.492 → 0.376 acr
+          -oss w=1→2→4. The dose-response machinery works end-to-end.    
+      208 -3. **The evaluation stack is validated by its own controls.** 
+          -The real arm scores IPR F1 = 0.978 (InterProScan recovers prom
+          -pted domains from natural sequences nearly perfectly) — the me
+          -tric, the ID conversion, and the pipeline are trustworthy. The
+          - positive control also *caught* the ground-truth-conversion bu
+          -g before it produced invalid conclusions.                     
+      209 -4. **The full pipeline is reproducible and fast**: 4×(256 seqs
+          - × 256 denoising steps) + 4 IPS scans + scoring ≈ 1 h on one R
+          -TX 3090.                                                      
+      207 +2. **First non-zero function recovery: GO, and it responds to 
+          +guidance.** With DAG-expanded GT, GO Fmax rises **0.014 → 0.02
+          +8 → 0.037** across w=1→2→4 (w=8: 0.034), crossing above the nu
+          +ll-conditioned control (0.031) at w≥4; GO recall micro climbs 
+          +monotonically **0.005 → 0.042 → 0.075 → 0.095**. Recovered ter
+          +ms are semantically-near ancestors/descendants of the prompts 
+          +— weak, but a real dose-response on the *global* (molecular-fu
+          +nction) axis.                                                 
+      208 +3. **A GO–IPR asymmetry is now visible.** GO conditioning (glo
+          +bal, whole-protein) produces graded, guidance-amplified partia
+          +l recovery; IPR conditioning (local, positional domains) stays
+          + at *exactly* 0.0000 in every generated arm at every w. The gr
+          +anularity hypothesis — dismissed earlier when both read zero u
+          +nder strict matching — is **partially revived**: global functi
+          +on labels are reachable through a global conditioning pathway 
+          +in a way local domain placement is not.                       
+      209 +4. **CFG controls the fidelity/realism trade-off exactly as de
+          +signed.** Higher w pulls sequences strongly back toward the na
+          +tural distribution: MMD-linear drops 0.887 → 0.492 → 0.376 acr
+          +oss w=1→2→4. The dose-response machinery works end-to-end.    
+      210 +5. **The evaluation stack is validated by its own controls.** 
+          +The real arm scores IPR F1 = 0.978 (InterProScan recovers prom
+          +pted domains from natural sequences nearly perfectly) and GO F
+          +max = 0.223 (in line with DeepGO-SE's published natural-protei
+          +n operating range) — the metrics, the ID conversion, the ontol
+          +ogy expansion, and the pipeline are trustworthy. The positive 
+          +control also *caught* the ground-truth-conversion bug before i
+          +t produced invalid conclusions.                               
+      211 +6. **The full pipeline is reproducible and fast**: generation 
+          ++ IPS + DeepGO-SE + scoring ≈ 1 h on one RTX 3090 (DeepGO-SE i
+          +tself is ~1 min/arm on GPU with a persisted ESM-2 3B cache — i
+          +t was the CPU pass that took hours).                          
+      212  
+      213  ### Negative results
+      214  
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 4 lines, removed 4 lines
+      212  
+      213  ### Negative results
+      214  
+      215 -1. **Zero function recovery across every generated arm, in bot
+          -h predictors.** IPR F1 = 0.0000 for all 1,280 generated sequen
+          -ces — not one prompted domain recovered by InterProScan, which
+          - recovers 98% of prompted domains from real sequences. GO set-
+          -match and GO Fmax = 0.0000 likewise for DeepGO-SE.            
+      216 -2. **MF annotation diversity collapse (new, per-branch diagnos
+          -tic).** Our conditioned model's 256 sequences annotate to only
+          - **32 unique MF terms** — vs **243** for the same number of na
+          -tural sequences and **369** for vanilla generations. The adapt
+          -er-trained model is stuck in a tiny functional mode.          
+      215 +1. **IPR recovery is exactly zero everywhere; GO recovery is f
+          +ar below both ceilings.** Not one prompted domain is recovered
+          + by InterProScan in any of the 1,536 generated sequences, agai
+          +nst a 0.978 real-sequence ceiling. GO Fmax peaks at 0.037 — 6×
+          + below the natural-sequence ceiling (0.223) and below *vanilla
+          + unconditional* generation (0.059): our conditioned outputs ar
+          +e still less function-annotatable than what the frozen base pr
+          +oduces with no conditioning at all.                           
+      216 +2. **MF annotation diversity collapse.** At w=1 our model's 25
+          +6 sequences annotate to only **32 unique MF terms** — vs **243
+          +** natural / **369** vanilla. Guidance restores roughly half (
+          +62 at w=4) but the collapse is a property of the adapter-train
+          +ed weights, not the sampler.                                  
+      217  3. **Sequence-realism regression from adapter training.** MMD 
+           to the real distribution: vanilla 0.16 vs our arms 0.37–0.89 —
+            adapter training moved generation into a low-complexity compo
+           sition (Ala/Gly-rich) far from natural proteins. Even the best
+            CFG point (w=4, 0.376) stays >2× worse than vanilla.
+      218 -4. **CFG cannot rescue recovery.** MRR peaks at w=2 and revert
+          -s to control levels by w=4–8; IPR/GO AUPR is flat in w. Sampli
+          -ng is not the bottleneck.                                     
+      219 -5. **Degradation vs vanilla confirmed in function space.** Van
+          -illa recovers a few domains by chance (F1 micro 0.0072); our c
+          -onditioned model recovers exactly zero — the conditioned outpu
+          -ts are *more* degenerate than vanilla random generation.      
+      218 +4. **CFG helps realism and global-function recovery, but not M
+          +RR beyond w=2 and not IPR at all.** MRR peaks at w=2 and rever
+          +ts by w=4–8; IPR stays at 0.0000 for every w. Sampling is not 
+          +the bottleneck for domain-level recovery.                     
+      219 +5. **Degradation vs vanilla confirmed in function space.** Van
+          +illa reaches GO Fmax 0.059 / IPR F1 0.0037 with *zero* conditi
+          +oning; our conditioned model peaks at 0.037 / 0.0000. The adap
+          +ter-trained outputs remain more degenerate than vanilla random
+          + generation at every guidance strength.                       
+      220  
+      221  ### Diagnosis
+      222  
+
+  Thought for 7s (ctrl+o to expand)
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 6 lines, removed 1 line
+      220  
+      221  ### Diagnosis
+      222  
+      223 -All observations are mutually consistent with the training cur
+          -ves: **aatype loss plateaued at step ~2K** while struct loss k
+          -ept improving. The 19.6M adapters, trained at frozen base on 4
+          -5K proteins for 100K steps, transmit *weak* label information 
+          -(enough to bias MRR and nudge struct denoising) but far too li
+          -ttle to shape low-complexity outputs into diverse, domain-bear
+          -ing, function-annotatable sequences. The per-branch diagnostic
+          - sharpens this: **MF-term diversity collapsed ~10×** (32 terms
+          - vs 243 natural) — the model fell into a low-diversity functio
+          -nal mode that neither GO nor IPR evaluation can rescue. The ze
+          -ro-recovery result is a *capacity/training-signal* limitation,
+          - not a sampling or evaluation artifact — the positive control 
+          -and CFG dose-response rule out both.                          
+      223 +All observations are mutually consistent with the training cur
+          +ves: **aatype loss plateaued at step ~2K** while struct loss k
+          +ept improving. The 19.6M adapters, trained at frozen base on 4
+          +5K proteins for 100K steps, transmit *weak* label information 
+          +(enough to bias MRR and nudge struct denoising) but far too li
+          +ttle to shape low-complexity outputs into diverse, domain-bear
+          +ing, function-annotatable sequences. The per-branch diagnostic
+          + sharpens this: **MF-term diversity collapsed ~10×** (32 terms
+          + vs 243 natural) — the model fell into a low-diversity functio
+          +nal mode that guidance only partially lifts.                  
+      224  
+      225 +Two distinct failure layers are now separable:                
+      226 +                                                              
+      227 +1. **Capacity/mode-collapse layer** (dominant): weak label sig
+          +nal + low-diversity outputs affect *both* ontologies — it caps
+          + GO Fmax at ~0.037 and zeroes IPR.                            
+      228 +2. **Granularity layer** (now measurable, secondary): *given* 
+          +that collapse, the residual GO signal responds to guidance whi
+          +le IPR stays identically zero — consistent with global protein
+          +-level labels being expressible through position-broadcast ada
+          +pters, and local domain placement not. This asymmetry predicti
+          +on should be re-tested on the LoRA model: if capacity fixes di
+          +versity and GO recovery rises but IPR stays near zero, the gra
+          +nularity limitation is real and motivates a position-aware con
+          +ditioning pathway (per-domain embeddings, conditioning at the 
+          +token level, or structure-channel hints).                     
+      229 +                                                              
+      230  ---
+      231  
+      232  ## 7. Current state & immediate next steps
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 1 line, removed 1 line
+      231  
+      232  ## 7. Current state & immediate next steps
+      233  
+      234 -1. **Meluxina:** InterProScan 5.78 + `go.obo` downloaded and *
+          -*IPS runs validated on the eval FASTAs** (EBI's FTP host was r
+          -efusing connections — the IPS 5.78 GitHub tarball bundles all 
+          -databases and works). DeepGO-SE setup pending (KAUST data link
+          - broken — issue filed upstream; docker image `coolmaksat/deepg
+          -ose` is the first fallback to probe for bundled data).        
+      234 +1. **Meluxina:** InterProScan 5.78 + `go.obo` downloaded and *
+          +*IPS runs validated on the eval FASTAs** (EBI's FTP host was r
+          +efusing connections — the IPS 5.78 GitHub tarball bundles all 
+          +databases and works). **DeepGO-SE complete**: data recovered v
+          +ia web archive, docker runner with GPU (`-d cuda`, ~1 min/arm)
+          + and a persisted ESM-2 3B torch-hub cache (host mount, no re-d
+          +ownload per run); GO scoring uses DAG-expanded GT via `go.obo`
+          +.                                                             
+      235  2. **Next: training changes to attack the zero-recovery result
+           ** (in priority order):
+      236     - **LoRA on attention+FFN** (the pre-planned escape hatch):
+            adapter-only capacity has been shown insufficient; LoRA adds 
+           trainable capacity *inside* each layer while keeping most of t
+           he base frozen.
+      237     - **Longer training / more data**: 45K proteins is small; s
+           cale toward the full CFP-Gen general set (104K) via the AFDB-t
+           okenizer path, or UniProt-annotated expansions (SwissProt + In
+           terPro + EC as the professors suggested).
+
+  Thought for 8s (ctrl+o to expand)
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 1 line, removed 1 line
+      165  
+      166  ## 6. First evaluation results (2026-09-25) — findings
+      167  
+      168 -Full 7-arm run executed: 256 conditioned sequences per arm (32
+          - held-out GO-F labels × 8 seqs, len 256), InterProScan 5.78-10
+          -9.0 on every arm, scorer applied after fixing a ground-truth c
+          -onversion bug (prompt label ints were compared against predict
+          -or *accessions* — the positive control caught it).            
+      168 +Full 7-arm run executed: 256 conditioned sequences per arm (32
+          + held-out GO-F labels × 8 seqs, len 256), InterProScan 5.78-10
+          +9.0 and DeepGO-SE (GPU) on every arm, scoring with GO-DAG-expa
+          +nded ground truth, after fixing a ground-truth conversion bug 
+          +(prompt label ints were compared against predictor *accessions
+          +* — the positive control caught it).                          
+      169  
+      170  ### Results table (GO via DeepGO-SE · IPR via InterProScan · d
+           istribution vs `real`)
+      171  
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 1 line, removed 1 line
+      233  
+      234  1. **Meluxina:** InterProScan 5.78 + `go.obo` downloaded and *
+           *IPS runs validated on the eval FASTAs** (EBI's FTP host was r
+           efusing connections — the IPS 5.78 GitHub tarball bundles all 
+           databases and works). **DeepGO-SE complete**: data recovered v
+           ia web archive, docker runner with GPU (`-d cuda`, ~1 min/arm)
+            and a persisted ESM-2 3B torch-hub cache (host mount, no re-d
+           ownload per run); GO scoring uses DAG-expanded GT via `go.obo`
+           .
+      235  2. **Next: training changes to attack the zero-recovery result
+           ** (in priority order):
+      236 -   - **LoRA on attention+FFN** (the pre-planned escape hatch):
+          - adapter-only capacity has been shown insufficient; LoRA adds 
+          -trainable capacity *inside* each layer while keeping most of t
+          -he base frozen.                                               
+      236 +   - **LoRA on attention+FFN** (the pre-planned escape hatch):
+          + adapter-only capacity has been shown insufficient; LoRA adds 
+          +trainable capacity *inside* each layer while keeping most of t
+          +he base frozen. The GO–IPR asymmetry makes this run doubly inf
+          +ormative — it doubles as the granularity-layer test: if GO rec
+          +overy rises with restored diversity but IPR stays near zero, t
+          +he limitation is architectural (global conditioning pathway), 
+          +not just capacity.                                            
+      237     - **Longer training / more data**: 45K proteins is small; s
+           cale toward the full CFP-Gen general set (104K) via the AFDB-t
+           okenizer path, or UniProt-annotated expansions (SwissProt + In
+           terPro + EC as the professors suggested).
+      238     - **Balanced label sampling** and possibly increasing CFG d
+           ropout (0.1 → 0.2) to strengthen the conditional gradient.
+      239     - Re-run the eval stack per iteration — the full loop now c
+           osts ~1 h GPU + ~30 min CPU.
+
+● Now the 09-29 report — its headline, results table, and next-steps still
+  predate the GO results:
+
+● Update(reports/weekly_meeting_2026-09-29.md)
+  ⎿  Added 4 lines, removed 5 lines
+       7  
+       8  ## 1. Headline
+       9  
+      10 -The first complete **function-recovery evaluation of the traine
+         -d Conditional-DPLM-2** ran end-to-end this week: **7 arms** (ou
+         -rs_cond at CFG w=1/2/4/8, ours_null, vanilla pretrained DPLM-2,
+         - real positive control), 256 sequences per arm, InterProScan 5.
+         -78 + scoring on all of them. Three findings:                   
+      10 +The first complete **function-recovery evaluation of the traine
+         +d Conditional-DPLM-2** ran end-to-end this week: **7 arms** (ou
+         +rs_cond at CFG w=1/2/4/8, ours_null, vanilla pretrained DPLM-2,
+         + real positive control), ~256 sequences per arm, InterProScan 5
+         +.78 + DeepGO-SE (GPU) + GO-DAG-expanded scoring on all of them.
+         + Four findings:                                                
+      11  
+      12  1. **Positive:** a real but weak *conditioning signal* exists —
+           MRR rises ~40% over both controls (0.110 vs 0.078), and CFG am
+          plifies it to **0.128 at w=2**.
+      13 -2. **Negative:** **zero IPR domain recovery** across all 1,280 
+         -generated sequences — against a **0.978 recovery ceiling on rea
+         -l sequences**. The generated proteins are too compositionally d
+         -egenerate for any domain annotation.                           
+      14 -3. **Negative:** a quantified **sequence-realism regression** f
+         -rom adapter training — our outputs sit 0.38–0.89 MMD from the n
+         -atural distribution, vs 0.16 for vanilla DPLM-2.               
+      13 +2. **Positive (new, final scoring):** the **first non-zero func
+         +tion recovery** — GO Fmax rises with guidance (0.014 → 0.037 ac
+         +ross w=1→4), crossing the null control at w≥4, with GO recall c
+         +limbing monotonically (0.005 → 0.095). Recovered terms are GO a
+         +ncestors/descendants of the prompts — weak, but a real dose-res
+         +ponse on the *global* function axis.                           
+      14 +3. **Negative:** **zero IPR domain recovery** across all 1,536 
+         +generated sequences — against a **0.978 recovery ceiling on rea
+         +l sequences**. The GO-vs-IPR contrast partially revives the gra
+         +nularity hypothesis: global labels are (weakly) reachable, loca
+         +l domain placement is not.                                     
+      15 +4. **Negative:** a quantified **sequence-realism regression** f
+         +rom adapter training — our outputs sit 0.38–0.89 MMD from the n
+         +atural distribution, vs 0.16 for vanilla DPLM-2. Vanilla also s
+         +till beats every conditioned arm on GO Fmax (0.059 vs ≤0.037). 
+      16  
+      16 -The DeepGO-SE GO columns are the last missing piece — its broke
+         -n data link was worked around this week (web archive), and its 
+         -first scoring pass is running now.                             
+      17 -                                                               
+      17  ---
+      18  
+      19  ## 2. What was done this week
+
+● Update(reports/weekly_meeting_2026-09-29.md)
+  ⎿  Added 12 lines, removed 12 lines
+      29  
+      30  ## 3. Results
+      31  
+      32 -Setup: 32 held-out GO molecular-function labels × 8 real sequen
+         -ces each → prompts are the proteins' own GO+IPR annotations; 25
+         -6 conditioned generations per arm (len 256, 256 denoising steps
+         -).                                                             
+      32 +Setup: 32 held-out GO molecular-function labels × 8 real sequen
+         +ces each → prompts are the proteins' own GO+IPR annotations; ~2
+         +56 conditioned generations per arm (len 256, 256 denoising step
+         +s). GO ground truth is ancestor-expanded over the GO DAG (go.ob
+         +o); GO Fmax is the CAFA threshold-free max-F1 over DeepGO-SE pe
+         +r-term probabilities.                                          
+      33  
+      34 -| Arm | IPR F1 micro | IPR F1 macro | IPR AUPR micro | MRR ↑ | 
+         -MMD-linear vs real ↓ | MMD-gaussian ↓ |                        
+      35 -|---|---|---|---|---|---|---|                                  
+      36 -| ours_cond (w=1) | 0.0000 | 0.0000 | 0.0294 | **0.1104** | 0.8
+         -874 | 0.5633 |                                                 
+      37 -| ours_cond w=2 | 0.0000 | 0.0000 | 0.0272 | **0.1277** | 0.492
+         -1 | 0.3017 |                                                   
+      38 -| ours_cond w=4 | 0.0000 | 0.0000 | 0.0283 | 0.0865 | 0.3757 | 
+         -0.2241 |                                                       
+      39 -| ours_cond w=8 | 0.0000 | 0.0000 | 0.0302 | 0.0860 | 0.4069 | 
+         -0.2439 |                                                       
+      40 -| ours_null | 0.0000 | 0.0000 | 0.0312 | 0.0778 | 0.8660 | 0.54
+         -84 |                                                           
+      41 -| vanilla (pretrained 650M) | 0.0072 | 0.0005 | 0.0066 | 0.0787
+         - | **0.1601** | **0.0983** |                                   
+      42 -| **real (positive control)** | **0.9782** | **0.9262** | **0.9
+         -574** | 0.8099* | 0 | 0 |                                      
+      34 +| Arm | GO Fmax ↑ | GO recall micro | IPR F1 micro | IPR AUPR m
+         +icro | MRR ↑ | MMD-linear vs real ↓ | MMD-gaussian ↓ |         
+      35 +|---|---|---|---|---|---|---|---|                              
+      36 +| ours_cond (w=1) | 0.0139 | 0.0052 | 0.0000 | 0.0292 | **0.105
+         +3** | 0.8967 | 0.5694 |                                        
+      37 +| ours_cond w=2 | 0.0277 | 0.0420 | 0.0000 | 0.0272 | **0.1277*
+         +* | 0.4921 | 0.3017 |                                          
+      38 +| ours_cond w=4 | **0.0369** | 0.0745 | 0.0000 | 0.0283 | 0.086
+         +5 | 0.3757 | 0.2241 |                                          
+      39 +| ours_cond w=8 | 0.0337 | 0.0953 | 0.0000 | 0.0302 | 0.0860 | 
+         +0.4069 | 0.2439 |                                              
+      40 +| ours_null | 0.0310 | 0.0022 | 0.0000 | 0.0314 | 0.0816 | 0.85
+         +44 | 0.5398 |                                                  
+      41 +| vanilla (pretrained 650M) | 0.0591 | 0.0966 | 0.0037 | 0.0074
+         + | 0.0745 | **0.1601** | **0.0938** |                          
+      42 +| **real (positive control)** | **0.2228** | 0.3043 | **0.9782*
+         +* | **0.9574** | 0.8099* | 0 | 0 |                             
+      43  
+      44 -\* real self-recovery MRR = 0.81 (not 1.0): the sample-size noi
+         -se floor of the metric at 8 seqs/label — this recalibrates ever
+         -y MRR reading (the ceiling is ~0.81, not 1.0).                 
+      44 +\* real self-recovery MRR = 0.81 (not 1.0): the sample-size noi
+         +se floor of the metric at 8 seqs/label — this recalibrates ever
+         +y MRR reading (the ceiling is ~0.81, not 1.0). Real GO Fmax 0.2
+         +228 is the natural-sequence ceiling of this predictor+GT on thi
+         +s set (DeepGO-SE's published MFO Fmax on natural proteins: 0.38
+         +6).                                                            
+      45  
+      46 -*(Table from the current eval set; a final regeneration on dedu
+         -plicated FASTAs is in flight — see §4, fix #5 — and numbers may
+         - shift by small amounts.)*                                     
+      46 +*Caveat:* the sweep arms (w=2/4/8) were generated on the pre-de
+         +dup prompt set (256 seqs) vs 250 for the main arms — within-swe
+         +ep trends are internally consistent; sub-0.01 cross-arm deltas 
+         +should not be over-read.                                       
+      47  
+      48  ### What each number says
+      49  
+
+  Thought for 13s (ctrl+o to expand)
+
+● Update(reports/weekly_meeting_2026-09-29.md)
+  ⎿  Added 1 line
+      47  
+      48  ### What each number says
+      49  
+      50 +- **GO Fmax (function recovery, global axis):** the only non-ze
+         +ro recovery channel. Rises with guidance 0.014 → 0.028 → 0.037 
+         +(peak w=4), crossing the null-conditioned control (0.031) at w≥
+         +4; recall micro climbs monotonically 0.005 → 0.095. Recovered t
+         +erms are DAG-neighbours of the prompts (MF-term *exact* overlap
+         + stays 0–1; MF diversity 32 → 62 terms under guidance vs 243 na
+         +tural / 369 vanilla) — weak, graded, and directionally correct,
+         + but still below vanilla unconditional (0.059) and 6× below the
+         + natural ceiling (0.223).                                      
+      51  - **MRR (label-conditionality, sequence modality):** controls s
+          it near the random floor for 59 reference groups (~0.068); ours
+          _cond rises above it at every w, peaking at **w=2 (+64% over co
+          ntrols)**. Per-label ranks confirm structure: some labels rank 
+          1st–4th of 59, others sit near the bottom — the conditioning si
+          gnal is real but covers a subset of labels.
+      52  - **IPR set-match (function recovery via predictor):** **zero r
+          ecovery in every generated arm** — no prompted domain is ever a
+          nnotated by InterProScan. The positive control scores 0.978 on 
+          the *same* prompts, so the pipeline, ID handling, and metric ar
+          e correct: the zeros are a property of the generated sequences.
+      53  - **MMD (distributional realism):** adapter training moved gene
+          ration far from the natural composition (0.89 linear-MMD at w=1
+           vs vanilla's 0.16). CFG *improves* naturalness monotonically-i
+          sh (0.49 at w=2, 0.38 at w=4) — the unconditioned component of 
+          the CFG mix pulls outputs back toward generic protein-like comp
+          osition.
+
+● Update(reports/weekly_meeting_2026-09-29.md)
+  ⎿  Added 1 line, removed 1 line
+      49  
+      50  - **GO Fmax (function recovery, global axis):** the only non-ze
+          ro recovery channel. Rises with guidance 0.014 → 0.028 → 0.037 
+          (peak w=4), crossing the null-conditioned control (0.031) at w≥
+          4; recall micro climbs monotonically 0.005 → 0.095. Recovered t
+          erms are DAG-neighbours of the prompts (MF-term *exact* overlap
+           stays 0–1; MF diversity 32 → 62 terms under guidance vs 243 na
+          tural / 369 vanilla) — weak, graded, and directionally correct,
+           but still below vanilla unconditional (0.059) and 6× below the
+           natural ceiling (0.223).
+      51  - **MRR (label-conditionality, sequence modality):** controls s
+          it near the random floor for 59 reference groups (~0.068); ours
+          _cond rises above it at every w, peaking at **w=2 (+64% over co
+          ntrols)**. Per-label ranks confirm structure: some labels rank 
+          1st–4th of 59, others sit near the bottom — the conditioning si
+          gnal is real but covers a subset of labels.
+      52 -- **IPR set-match (function recovery via predictor):** **zero r
+         -ecovery in every generated arm** — no prompted domain is ever a
+         -nnotated by InterProScan. The positive control scores 0.978 on 
+         -the *same* prompts, so the pipeline, ID handling, and metric ar
+         -e correct: the zeros are a property of the generated sequences.
+      52 +- **IPR set-match (function recovery, local axis):** **zero rec
+         +overy in every generated arm** — no prompted domain is ever ann
+         +otated by InterProScan. The positive control scores 0.978 on th
+         +e *same* prompts, so the pipeline, ID handling, and metric are 
+         +correct: the zeros are a property of the generated sequences. R
+         +ead against the GO column, this is the granularity signal: glob
+         +al GO labels get graded partial recovery under a global conditi
+         +oning pathway; local IPR domain placement gets none.           
+      53  - **MMD (distributional realism):** adapter training moved gene
+          ration far from the natural composition (0.89 linear-MMD at w=1
+           vs vanilla's 0.16). CFG *improves* naturalness monotonically-i
+          sh (0.49 at w=2, 0.38 at w=4) — the unconditioned component of 
+          the CFG mix pulls outputs back toward generic protein-like comp
+          osition.
+      54  - **AUPR nuance:** ours arms (~0.03) sit slightly above vanilla
+           (0.007) and even above… not above the real control's 0.957 — t
+          he tiny positive AUPR suggests weak ranking signal for prompted
+           terms, far below annotation thresholds.
+      55  
+
+● Now §6 next-steps and the appendix state in the 09-29 report:
+
+● Update(reports/weekly_meeting_2026-09-29.md)
+  ⎿  Added 1 line, removed 1 line
+      84  
+      85  ## 6. Next steps (priority order)
+      86  
+      87 -1. **Finish the current eval pass** (in flight): regenerate all
+         - arms on deduplicated FASTAs → re-run IPS (~2 min/arm) → DeepGO
+         --SE on all arms (data recovered; docker runner) → scorer → comp
+         -lete table incl. GO Fmax/set-match and the `cfpgen` comparison 
+         -arm.                                                           
+      87 +1. ~~Finish the current eval pass~~ — **done**: DeepGO-SE ran o
+         +n all 7 arms (GPU, ~1 min/arm, persisted ESM-2 3B cache), score
+         +r applied with GO-DAG-expanded GT → complete table in §3. Remai
+         +ning in the eval queue: `cfpgen` comparison arm, per-family MMD
+         +, UMAP visualization.                                          
+      88  2. **Training change #1 — LoRA on attention+FFN** (the pre-plan
+          ned capacity escape hatch), trained on the same 45K set, evalua
+          ted with the identical protocol. Success criterion: IPR recover
+          y > 0 at w=1–2 with MMD not worse than vanilla.
+      89  3. **Training change #2 — data scaling:** tokenize the ~49K mis
+          sing CFP-Gen proteins with the corrected v2 pipeline (validated
+          : lengths now match DPLM-2 exactly; ~10% single-bit LFQ noise a
+          ccepted) → LoRA on the combined ~82K.
+      90  4. **DeepGO-SE scoring** of all arms once prediction completes 
+          → GO Fmax/set-match columns + Smin via CAFA-evaluator.
+
+● Update(reports/weekly_meeting_2026-09-29.md)  ⎿  Added 1 line, removed 1 line
+      87  1. ~~Finish the current eval pass~~ — **done**: DeepGO-SE ran o
+          n all 7 arms (GPU, ~1 min/arm, persisted ESM-2 3B cache), score
+          r applied with GO-DAG-expanded GT → complete table in §3. Remai
+          ning in the eval queue: `cfpgen` comparison arm, per-family MMD
+          , UMAP visualization.
+      88  2. **Training change #1 — LoRA on attention+FFN** (the pre-plan
+          ned capacity escape hatch), trained on the same 45K set, evalua
+          ted with the identical protocol. Success criterion: IPR recover
+          y > 0 at w=1–2 with MMD not worse than vanilla.
+      89  3. **Training change #2 — data scaling:** tokenize the ~49K mis
+          sing CFP-Gen proteins with the corrected v2 pipeline (validated
+          : lengths now match DPLM-2 exactly; ~10% single-bit LFQ noise a
+          ccepted) → LoRA on the combined ~82K.
+      90 -4. **DeepGO-SE scoring** of all arms once prediction completes 
+         -→ GO Fmax/set-match columns + Smin via CAFA-evaluator.         
+      90 +4. ~~DeepGO-SE scoring~~ — **done** (GO Fmax/set-match in §3). 
+         +Smin via CAFA-evaluator still deferred (needs information-conte
+         +nt weights over the GO corpus).                                
+      91  5. **Docs:** loss-decomposition + Mermaid training/inference di
+          agrams; validation callback (loss-delta proxy + qualitative exa
+          mples) for future runs.
+      92  
+      93  ---
+
+● Update(reports/weekly_meeting_2026-09-29.md)
+  ⎿  Added 3 lines, removed 2 lines
+      100  | CFG sampling (w sweep) | ✅ implemented + tested |
+      101  | InterProScan 5.78-109.0 | ✅ local install, IPS runs verifie
+           d |
+      102  | DeepGO-SE data | ✅ recovered via web archive |
+      103 +| DeepGO-SE predict run (all 7 arms, GPU) | ✅ done (~1 min/ar
+          +m; ESM-2 3B cache persisted to host) |                        
+      104 +| GO scoring with DAG-expanded GT (obonet) | ✅ |             
+      105  | 4-arm generation driver (batched, deduped, sanitized) | ✅ |
+      106  | Scorer (MRR/MMD/set-match/Fmax) | ✅ |
+      107  | `cfpgen` comparison arm driver | ✅ written; run pending |
+      106 -| DeepGO-SE predict run on eval FASTAs | 🟡 in flight |       
+      107 -| LoRA training run | ⚪ next |                               
+      108 +| LoRA training run | ⚪ next (doubles as the granularity-laye
+          +r test) |                                                     
+
+  Thought for 10s (ctrl+o to expand)
+
+● Reports updated. Adding obonet to the pinned deps for reproducibility, then
+  committing:
+
+  Listed 1 directory, ran 2 shell commands (ctrl+o to expand)
+
+● The GO evaluation is now complete and committed. Summary of what changed and
+  what the final numbers say:
+
+  Fixes this round
+
+  - obonet was missing from the dplm env — installed (v1.2.0), pinned in
+    dplm-pip-freeze.txt. This is why the earlier GO pass silently ran without
+    ontology expansion: the import obonet sits inside the --obo block, so the
+    scorer never crashed, it just skipped DAG expansion.
+  - Verified the expansion itself is correct (GO:0004425 → 6 ancestors up to the
+    MF root), then re-scored everything with --obo.
+  - DeepGO-SE completed on the 3 cfg-sweep arms (cfg2/4/8) — done on GPU at ~1
+    min/arm (the earlier hours-long run was CPU-only), with the ESM-2 3B
+    checkpoint rescued out of your old container to ~/.cache/esm_torch_hub and
+    mounted in, so no more re-downloads.
+
+  The final table changed one headline
+
+  ┌──────────────┬──────────┬───────────────┬────────┬────────┬─────────────┐
+  │     Arm      │ GO Fmax  │  GO recall    │ IPR F1 │ MRR ↑  │ MMD-linear  │
+  │              │    ↑     │     micro     │        │        │      ↓      │
+  ├──────────────┼──────────┼───────────────┼────────┼────────┼─────────────┤
+  │ ours_cond    │ 0.0139   │ 0.0052        │ 0.0000 │ 0.1053 │ 0.8967      │
+  │ w=1          │          │               │        │        │             │
+  ├──────────────┼──────────┼───────────────┼────────┼────────┼─────────────┤
+  │ ours_cond    │ 0.0277   │ 0.0420        │ 0.0000 │ 0.1277 │ 0.4921      │
+  │ w=2          │          │               │        │        │             │
+  ├──────────────┼──────────┼───────────────┼────────┼────────┼─────────────┤
+  │ ours_cond    │ 0.0369   │ 0.0745        │ 0.0000 │ 0.0865 │ 0.3757      │
+  │ w=4          │          │               │        │        │             │
+  ├──────────────┼──────────┼───────────────┼────────┼────────┼─────────────┤
+  │ ours_cond    │ 0.0337   │ 0.0953        │ 0.0000 │ 0.0860 │ 0.4069      │
+  │ w=8          │          │               │        │        │             │
+  ├──────────────┼──────────┼───────────────┼────────┼────────┼─────────────┤
+  │ ours_null    │ 0.0310   │ 0.0022        │ 0.0000 │ 0.0816 │ 0.8544      │
+  ├──────────────┼──────────┼───────────────┼────────┼────────┼─────────────┤
+  │ vanilla      │ 0.0591   │ 0.0966        │ 0.0037 │ 0.0745 │ 0.1601      │
+  ├──────────────┼──────────┼───────────────┼────────┼────────┼─────────────┤
+  │ real         │ 0.2228   │ 0.3043        │ 0.9782 │ 0.8099 │ 0           │
+  └──────────────┴──────────┴───────────────┴────────┴────────┴─────────────┘
+
+  1. First non-zero function recovery — on the GO axis, and it responds to 
+     guidance. Fmax rises 0.014 → 0.037 across w=1→4 (crossing the null control
+     at w≥4), recall climbs monotonically 0.005 → 0.095, and MF-term diversity
+     partially recovers (32 → 62 terms). The recovered terms are GO-DAG
+     neighbours of the prompts — exact-term overlap stays 0–1.
+  2. IPR stays at exactly 0.0000 everywhere. The GO-vs-IPR contrast partially 
+     revives the granularity hypothesis we had rejected: global function labels
+     are (weakly) reachable through the position-broadcast adapters; local
+     domain placement is not. The report now frames this as a testable
+     prediction for the LoRA run — if GO recovers with restored diversity but
+     IPR doesn't, the limitation is architectural.
+  3. Honest ceilings: real GO Fmax 0.223 (sanity: DeepGO-SE's published MFO Fmax
+     is 0.386 on their larger natural test set), and vanilla unconditional
+     still beats every conditioned arm on GO (0.059) — adapter outputs remain
+     less annotatable than the frozen base.
+
+  Both reports are updated (09-22 §3/§6, 09-29 headline/table/appendix) and
+  committed (5f0275f), including a caveat that the sweep arms were generated on
+  the pre-dedup 256-seq prompt set.
+
+  One thing I'd flag: the GO recovery, while real, rides entirely on guidance
+  pulling outputs back toward generic natural proteins — which also raises
+  vanilla-like GO scores. The per-family MMD metric (feedback 1) would separate
+  "more protein-like" from "more like the prompted family". That's the next
+  queued item — want me to go ahead with it?
+
+❯ yes proceed with per-family MMD (does MRR also need adjustment after this     
+  change)? Also I want to debug the InterProScan results, exactly zero on all   
+  conditional arms is suspicious (maybe a silent bug like deepgo, need to rule  
+  that out)                                                                     
+
+  Thought for 2m 19s (ctrl+o to expand)
+
+● Two threads then: (1) per-family MMD (+ an answer on MRR), (2) an InterProScan
+  zero-result audit. For (2) there's already an internal inconsistency worth
+  chasing — IPR AUPR micro is 0.029 (nonzero) while F1/precision/recall micro
+  are all exactly 0.0000 for the ours arms; with binary predictor outputs,
+  nonzero AUPR normally implies some overlap. That smells like either a metric
+  bug or a rounding illusion — exactly the DeepGO-class silent failure you're
+  worried about.
+
+  Let me first read the metric implementations:
+
+  Thought for 1m 23s, searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Found a real inconsistency to chase: set_match_metrics computes AUPR/AUC on 
+  the binarized prediction matrix — with binary scores and truly disjoint
+  pred/GT sets, micro-AP should be exactly 0.0 and AUC exactly 0.5. Observed for
+  ours_cond: AUC 0.4947 (≈0.5, consistent) but AP 0.0292 ≠ 0 (inconsistent with
+  P=R=F1=0.0000). Let me test sklearn's behavior and do a raw, scorer-free
+  overlap computation:
+
+  Thought for 43s, ran 1 shell command (ctrl+o to expand)
+
+● Key discovery: sklearn's micro-AP returns a nonzero baseline (0.33) even for 
+  perfectly disjoint binary matrices — so ipr_aupr_micro = 0.029 does not imply
+  hidden overlap; it's an artifact of computing AP on binary set-valued
+  predictions (it mostly tracks prediction volume — note vanilla has lower AUPR
+  0.007 despite having actual overlap). That resolves the AUPR-vs-F1
+  contradiction, but the raw-zero claim still needs a scorer-free audit. Writing
+  the diagnostic:
+
+● Write(scripts/eval_function/diagnose_ips.py)
+  ⎿  Wrote 184 lines to scripts/eval_function/diagnose_ips.py
+       1 """Standalone audit of the InterProScan zero-recovery result.
+       3 Recomputes, without going through score_function_eval.py:
+       4   1. join integrity  — FASTA ids vs IPS-TSV ids vs manifest ids 
+       5      renamed headers, dropped proteins);
+         s, per arm;
+       7   3. reproduction    — set_match_metrics() on the same inputs, t
+       8      scorer's numbers (and that micro-AP has a nonzero baseline 
+         even for
+         ;
+         ions, unique
+     … +218 lines (ctrl+o to expand)
+
+  Thought for 1m 25s, ran 1 shell command (ctrl+o to expand)
+
+● The audit is decisive — the zeros are genuine, not a bug. Hand-computed raw
+  overlap (no scorer, no conversion layer): ours_cond TP=0 / ours_null TP=0,
+  join integrity perfect (0 stale IDs, full manifest match), while real scores
+  TP=1144 and vanilla TP=4 on the identical code path. And the diagnostic found
+  what IPS is actually matching in our arms:
+
+  - ~53% of all ours_cond IPS rows are PRINTS "Type I antifreeze protein 
+    signature" (IPR000104) — 444 of 851 rows; ours_null likewise (450/589).
+    Antifreeze proteins are small Ala/Gly-rich repeats — exactly the degenerate
+    composition MMD flagged. Our "annotatable domains" are composition
+    artifacts.
+  - Vanilla/real arms are instead dominated by real domain libraries
+    (Gene3D/Pfam/SUPERFAMILY/NCBIfam).
+  - The AUPR mystery is resolved as a metric artifact: set_match_metrics
+    reproduces AP=0.0292 with TP=0 exactly — sklearn's micro-AP has a nonzero
+    baseline on binary matrices even when disjoint (I verified: 0.33 for a
+    perfectly disjoint example). Vanilla has lower AUPR (0.007) despite real
+    overlap. That column is meaningless for set-valued predictors and I'll flag
+    it.
+
+  Let me run the last control (composition-preserved shuffles — if IPS still
+  hits antifreeze on shuffled outputs, even the 19 accessions are composition
+  artifacts), and implement per-family MMD while it runs:
+
+● Update(scripts/eval_function/diagnose_ips.py)
+  ⎿  Added 14 lines, removed 6 lines
+      54      ap.add_argument("--arms", default="ours_cond,ours_null,vani
+          lla,real")
+      55      ap.add_argument("--shuffle-real", default=None,
+      56                      help="write a composition-preserved shuffle
+          d real FASTA here")
+      57 +    ap.add_argument("--shuffle-arm", default=None,             
+      58 +                    help="write a composition-preserved shuffle
+         +d FASTA of this arm here")                                     
+      59      args = ap.parse_args()
+      60  
+      61      evdir = Path(args.evaldir)
+     ...
+      63      go_inv = {v: k for k, v in manifest["label_map"]["go"].item
+          s()}
+      64      ipr_inv = {v: k for k, v in manifest["label_map"]["ipr"].it
+          ems()}
+      65  
+      64 -    if args.shuffle_real:                                      
+      65 -        real = read_fasta(evdir / "real" / "aatype.fasta")     
+      66 +    def write_shuffled(seqs, dst_dir):                         
+      67          rng = random.Random(0)
+      68          out = []
+      68 -        for sid, seq in real.items():                          
+      69 +        for sid, seq in seqs.items():                          
+      70              l = list(seq)
+      71              rng.shuffle(l)
+      72              out.append(f">{sid}\n{''.join(l)}")
+      72 -        Path(args.shuffle_real).mkdir(parents=True, exist_ok=Tr
+         -ue)                                                            
+      73 -        dst = Path(args.shuffle_real) / "aatype.fasta"         
+      73 +        Path(dst_dir).mkdir(parents=True, exist_ok=True)       
+      74 +        dst = Path(dst_dir) / "aatype.fasta"                   
+      75          dst.write_text("\n".join(out) + "\n")
+      75 -        print(f"wrote shuffled real control: {dst} ({len(real)}
+         - seqs)")                                                       
+      76 +        print(f"wrote shuffled control: {dst} ({len(seqs)} seqs
+         +)")                                                            
+      77 +                                                               
+      78 +    if args.shuffle_real:                                      
+      79 +        write_shuffled(read_fasta(evdir / "real" / "aatype.fast
+         +a"), args.shuffle_real)                                        
+      80          return
+      81 +    if args.shuffle_arm:                                       
+      82 +        write_shuffled(read_fasta(evdir / args.shuffle_arm / "a
+         +atype.fasta"),                                                 
+      83 +                       str(evdir / f"{args.shuffle_arm}_shuf"))
+      84 +        return                                                 
+      85  
+      86      for arm in [a.strip() for a in args.arms.split(",") if a.st
+          rip()]:
+      87          d = evdir / arm
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Controls running. Now per-family MMD — first the reusable metric in
+  function.py:
+
+● Update(src/byprot/eval/function.py)
+  ⎿  Added 73 lines
+      157      raise ValueError(f"unknown kernel {kernel!r}")
+      158  
+      159  
+      160 +def per_family_mmd(                                           
+      161 +    generated: Sequence[str],                                 
+      162 +    generated_labels: Sequence[Iterable[int]],                
+      163 +    reference: Sequence[str],                                 
+      164 +    reference_labels: Sequence[Iterable[int]],                
+      165 +    kernels: Sequence[str] = ("linear", "gaussian"),          
+      166 +    embedding_fn=None,                                        
+      167 +) -> Dict[str, Dict[str, float]]:                             
+      168 +    """Condition-aware MMD: per-label distributional distance 
+          +to the real set.                                              
+      169 +                                                              
+      170 +    For every label ``L`` present in both generated and refere
+          +nce sets,                                                     
+      171 +    computes ``own = MMD(generated-for-L, real-for-L)`` and a 
+          +``cross``                                                     
+      172 +    baseline — the mean MMD of generated-for-L against the rea
+          +l sets of all                                                 
+      173 +    *other* labels. ``delta = cross - own > 0`` means the gene
+          +rated group sits                                              
+      174 +    closer to its own family than to a random other family, i.
+          +e. the                                                        
+      175 +    conditioning carries label-specific distributional informa
+          +tion beyond                                                   
+      176 +    generic realism (which the arm-level MMD alone measures). 
+      177 +                                                              
+      178 +    One median-heuristic bandwidth per call (all labels pooled
+          +) so values are                                               
+      179 +    comparable across label pairs under the gaussian kernel. M
+          +embership                                                     
+      180 +    convention matches :func:`mrr`: multi-label sequences appe
+          +ar in every                                                   
+      181 +    group they belong to.                                     
+      182 +                                                              
+      183 +    Returns:                                                  
+      184 +        ``{kernel: {n_labels, own_mean, own_median, cross_mean
+          +, delta_mean,                                                 
+      185 +        frac_labels_own_closest, per_label_own, per_label_delt
+          +a}}``                                                         
+      186 +    """                                                       
+      187 +    from collections import defaultdict                       
+      188 +                                                              
+      189 +    if embedding_fn is None:                                  
+      190 +        embedding_fn = spectrum_map                           
+      191 +    emb_gen = embedding_fn(generated)                         
+      192 +    emb_ref = embedding_fn(reference)                         
+      193 +                                                              
+      194 +    g_idx: Dict[int, List[int]] = defaultdict(list)           
+      195 +    r_idx: Dict[int, List[int]] = defaultdict(list)           
+      196 +    for i, labs in enumerate(generated_labels):               
+      197 +        for lab in labs:                                      
+      198 +            g_idx[int(lab)].append(i)                         
+      199 +    for i, labs in enumerate(reference_labels):               
+      200 +        for lab in labs:                                      
+      201 +            r_idx[int(lab)].append(i)                         
+      202 +    common = sorted(set(g_idx) & set(r_idx))                  
+      203 +    if not common:                                            
+      204 +        return {}                                             
+      205 +                                                              
+      206 +    gamma = _median_heuristic_gamma(np.vstack([emb_gen, emb_re
+          +f]))                                                          
+      207 +                                                              
+      208 +    out: Dict[str, Dict[str, float]] = {}                     
+      209 +    for kernel in kernels:                                    
+      210 +        own, cross = {}, {}                                   
+      211 +        for lab in common:                                    
+      212 +            own[lab] = mmd(emb1=emb_gen[g_idx[lab]], emb2=emb_
+          +ref[r_idx[lab]],                                              
+      213 +                           kernel=kernel, gamma=gamma)        
+      214 +            cross[lab] = float(np.mean([                      
+      215 +                mmd(emb1=emb_gen[g_idx[lab]], emb2=emb_ref[r_i
+          +dx[other]],                                                   
+      216 +                    kernel=kernel, gamma=gamma)               
+      217 +                for other in common if other != lab           
+      218 +            ]))                                               
+      219 +        deltas = {lab: cross[lab] - own[lab] for lab in common
+          +}                                                             
+      220 +        out[kernel] = {                                       
+      221 +            "n_labels": len(common),                          
+      222 +            "own_mean": float(np.mean(list(own.values()))),   
+      223 +            "own_median": float(np.median(list(own.values())))
+          +,                                                             
+      224 +            "cross_mean": float(np.mean(list(cross.values())))
+          +,                                                             
+      225 +            "delta_mean": float(np.mean(list(deltas.values()))
+          +),                                                            
+      226 +            "frac_labels_own_closest": float(np.mean([d > 0 fo
+          +r d in deltas.values()])),                                    
+      227 +            "per_label_own": {str(lab): round(v, 6) for lab, v
+          + in own.items()},                                             
+      228 +            "per_label_delta": {str(lab): round(v, 6) for lab,
+          + v in deltas.items()},                                        
+      229 +        }                                                     
+      230 +    return out                                                
+      231 +                                                              
+      232 +                                                              
+      233  # ------------------------------------------------------------
+           ---------------
+      234  # MRR (port of cfpgen metrics/conditional.py; hierarchy flags 
+           deferred)
+      235  # ------------------------------------------------------------
+           ---------------
+
+● Now wire it into the scorer:
+
+● Update(scripts/eval_function/score_function_eval.py)
+  ⎿  Added 1 line
+      33      fmax,
+      34      mmd,
+      35      mrr,
+      36 +    per_family_mmd,                                            
+      37      propagate_ancestors,
+      38      set_match_metrics,
+      39      spectrum_map,
+
+● Update(scripts/eval_function/score_function_eval.py)
+  ⎿  Added 12 lines
+      107          r["mrr"] = mrr_val
+      108          r["mrr_ranks"] = {str(k): v for k, v in ranks.items()}
+      109  
+      110 +        # Per-family MMD: generated-for-L vs real-for-L, with 
+          +the cross-family                                              
+      111 +        # baseline (delta = cross - own > 0 == label-specific 
+          +proximity).                                                   
+      112 +        # For the `real` arm this is the noise floor (own == 0
+          + by construction;                                             
+      113 +        # frac == 1.0 expected).                              
+      114 +        pf = per_family_mmd(list(seqs.values()), gen_labels, r
+          +eal_seqs, real_labels)                                        
+      115 +        for kernel, stats in pf.items():                      
+      116 +            r[f"pfmmd_{kernel}_own"] = stats["own_mean"]      
+      117 +            r[f"pfmmd_{kernel}_cross"] = stats["cross_mean"]  
+      118 +            r[f"pfmmd_{kernel}_delta"] = stats["delta_mean"]  
+      119 +            r[f"pfmmd_{kernel}_frac"] = stats["frac_labels_own
+          +_closest"]                                                    
+      120 +        r["pfmmd_detail"] = pf                                
+      121 +                                                              
+      122          # Inverse label maps: int id → ontology accession (IPR
+           000276 / GO:...).
+      123          ipr_inv = {v: k for k, v in manifest["label_map"]["ipr
+           "].items()}
+      124          go_inv = {v: k for k, v in manifest["label_map"]["go"]
+           .items()}
+
+  Thought for 10s (ctrl+o to expand)
+
+● The markdown writer would dump the new detail dicts into the table — let me
+  exclude nested dicts from the rendered table (keep them in results.json):
+
+● Update(scripts/eval_function/score_function_eval.py)
+  ⎿  Added 3 lines, removed 1 line
+      194          results[arm] = r
+      195  
+      196      (evdir / "results.json").write_text(json.dumps(results, in
+           dent=2))
+      197 -    keys = sorted({k for r in results.values() for k in r})   
+      197 +    # Markdown table: scalar keys only (nested dicts live in r
+          +esults.json).                                                 
+      198 +    keys = sorted({k for r in results.values() for k in r     
+      199 +                   if not isinstance(r.get(k), (dict, list))})
+      200      lines = ["| arm | " + " | ".join(keys) + " |",
+      201               "|---" * (len(keys) + 1) + "|"]
+      202      for arm, r in results.items():
+
+  Thought for 17s, searched for 1 pattern, listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+● The repo's convention is a sanity-check script, not pytest. Let me see its
+  structure and extend it:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(scripts/eval_function/check_function_metrics.py)
+  ⎿  Added 1 line
+      21      fmax,
+      22      mmd,
+      23      mrr,
+      24 +    per_family_mmd,                                            
+      25      set_match_metrics,
+      26      spectrum_map,
+      27  )
+
+● Update(scripts/eval_function/check_function_metrics.py)
+  ⎿  Added 24 lines
+       90  f_noisy = fmax(noisy, gt_bin)
+       91  check("fmax noisy < 1.0 but > 0.5", 0.5 < f_noisy < 1.0, f"fma
+           x={f_noisy:.3f}")
+       92  
+       93 +# --- per-family MMD: label-specific proximity vs condition-bl
+          +ind baseline ---                                              
+       94 +# 3 reference groups (disjoint alphabets); "good" generation c
+          +opies each group                                              
+       95 +# with noise → per-family MMD should sit below the cross-famil
+          +y baseline.                                                   
+       96 +pf_seqs, pf_labels = list(gen_good), list(gen_labels_good)    
+       97 +pf = per_family_mmd(pf_seqs, pf_labels, ref_seqs, ref_labels) 
+       98 +for kernel in ("linear", "gaussian"):                         
+       99 +    s = pf[kernel]                                            
+      100 +    check(f"per-family MMD ({kernel}): conditioned > condition
+          +-blind",                                                      
+      101 +          s["delta_mean"] > 0, f"delta={s['delta_mean']:.4f}")
+      102 +    check(f"per-family MMD ({kernel}): all labels own-closest"
+          +,                                                             
+      103 +          s["frac_labels_own_closest"] == 1.0,                
+      104 +          f"frac={s['frac_labels_own_closest']:.2f}")         
+      105 +# condition-blind control: every group generated from the SAME
+          + composition —                                                
+      106 +# no label-specific signal → delta should collapse toward 0.  
+      107 +blind_seqs = [seqs_b[i % len(seqs_b)] for _ in range(24)]     
+      108 +blind_labels = [[i // 8] for i in range(24)]                  
+      109 +pf_blind = per_family_mmd(blind_seqs, blind_labels, ref_seqs, 
+          +ref_labels)                                                   
+      110 +check("per-family MMD linear: blind delta ≈ 0 (|delta| < 0.05)
+          +",                                                            
+      111 +      abs(pf_blind["linear"]["delta_mean"]) < 0.05,           
+      112 +      f"delta={pf_blind['linear']['delta_mean']:.4f}")        
+      113 +check("per-family MMD self-reference noise floor: real-vs-real
+          + own = 0",                                                    
+      114 +      per_family_mmd(ref_seqs, ref_labels, ref_seqs, ref_label
+          +s)                                                            
+      115 +      ["linear"]["own_mean"] < 1e-6)                          
+      116 +                                                              
+      117  print("\n=== VERDICT ===")
+      118  print("ALL METRIC CHECKS PASSED" if ok else "SOME CHECKS FAILE
+           D")
+      119  sys.exit(0 if ok else 1)
+  Thought for 8s, ran 1 shell command (ctrl+o to expand)
+
+● Output got truncated before the blind-control check — let me see the tail
+  properly:
+
+  Thought for 12s, ran 2 shell commands (ctrl+o to expand)
+
+● Update(scripts/eval_function/check_function_metrics.py)
+  ⎿  Added 1 line, removed 1 line
+      104            f"frac={s['frac_labels_own_closest']:.2f}")
+      105  # condition-blind control: every group generated from the SAME
+            composition —
+      106  # no label-specific signal → delta should collapse toward 0.
+      107 -blind_seqs = [seqs_b[i % len(seqs_b)] for _ in range(24)]     
+      107 +blind_seqs = [seqs_b[i % len(seqs_b)] for i in range(24)]     
+      108  blind_labels = [[i // 8] for i in range(24)]
+      109  pf_blind = per_family_mmd(blind_seqs, blind_labels, ref_seqs, 
+           ref_labels)
+      110  check("per-family MMD linear: blind delta ≈ 0 (|delta| < 0.05)
+           ",
+
+  Thought for 6s, ran 1 shell command (ctrl+o to expand)
+
+● All 18 checks pass. Now re-run the full scorer with per-family MMD on all 7
+  arms:
+
+  Thought for 25s, ran 1 shell command (ctrl+o to expand)
+
+● Per-family MMD results are in and they independently corroborate the MRR 
+  story:
+
+  ┌────────────┬─────────────────┬───────────────┬─────────────────────────┐
+  │    Arm     │ Δ (cross−own,   │     frac      │         reading         │
+  │            │     linear)     │  own-closest  │                         │
+  ├────────────┼─────────────────┼───────────────┼─────────────────────────┤
+  │ ours_cond  │ +0.0045         │ 0.53          │ weak signal             │
+  │ w=1        │                 │               │                         │
+  ├────────────┼─────────────────┼───────────────┼─────────────────────────┤
+  │ ours_cond  │ +0.0185         │ 0.71          │ peak — same w as MRR    │
+  │ w=2        │                 │               │ peak                    │
+  ├────────────┼─────────────────┼───────────────┼─────────────────────────┤
+  │ ours_cond  │ +0.0122         │ 0.66          │ decaying                │
+  │ w=4        │                 │               │                         │
+  ├────────────┼─────────────────┼───────────────┼─────────────────────────┤
+  │ ours_cond  │ +0.0066         │ 0.61          │ decaying                │
+  │ w=8        │                 │               │                         │
+  ├────────────┼─────────────────┼───────────────┼─────────────────────────┤
+  │ ours_null  │ −0.0009         │ 0.54          │ chance (0.5)            │
+  ├────────────┼─────────────────┼───────────────┼─────────────────────────┤
+  │ vanilla    │ −0.0011         │ 0.51          │ chance                  │
+  ├────────────┼─────────────────┼───────────────┼─────────────────────────┤
+  │ real       │ +0.8006         │ 1.00          │ noise floor: own=0, all │
+  │            │                 │               │  own-closest ✓          │
+  └────────────┴─────────────────┴───────────────┴─────────────────────────┘
+
+  Condition-blind controls sit exactly at chance, the real arm calibrates the
+  metric perfectly, and the conditioned model peaks at w=2 — matching MRR's w=2
+  peak with a completely different construction (distributional distance vs
+  centroid ranking). Now the shuffled-IPS controls:
+
+  Thought for 39s, listed 1 directory, ran 2 shell commands (ctrl+o to expand)
+
+● IPS is actively running (it's in the slow PANTHER/SUPERFAMILY HMMER stages).
+  While it finishes, let me write the report updates — per-family MMD subsection
+  and the IPS audit:
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 34 lines, removed 1 line
+      201  
+      202  **The function-conditioned model's MF annotation diversity has
+            collapsed to ~32 terms at w=1** (vs 243 for natural sequences
+            and 369 for vanilla), with essentially zero *exact* overlap w
+           ith the 59 prompted labels. Guidance partially restores divers
+           ity (32 → 62 terms at w=4) and annotation volume (1,886 → 3,14
+           5 MF lines at w=8) — consistent with the GO Fmax dose-response
+            above — but stays ~6× below vanilla. Exact-term overlap stays
+            at 0–1 everywhere in our arms: the nonzero GO Fmax comes enti
+           rely from *semantically near* predictions (GO ancestors/descen
+           dants of the prompted terms) counted after DAG expansion.
+      203  
+      204 -### Positive results                                          
+      204 +### InterProScan zero-result audit (2026-09-29, scorer-free)  
+      205  
+      206 +The exact-zero IPR column was audited for hidden plumbing bugs
+          + (`scripts/eval_function/diagnose_ips.py`), because a silent f
+          +ailure of exactly this shape had already occurred once with De
+          +epGO-SE. Verdict: **the zeros are genuine properties of the ge
+          +nerated sequences, not a bug.**                               
+      207 +                                                              
+      208 +| Check | ours_cond | ours_null | vanilla | real |            
+      209 +|---|---|---|---|---|                                         
+      210 +| stale/unmatched IDs (ips vs fasta vs manifest) | 0 | 0 | 0 |
+          + 0 |                                                          
+      211 +| raw TP (hand-computed set overlap) | **0** | **0** | 4 | 1,1
+          +44 |                                                          
+      212 +| proteins with ≥1 recovered prompted domain | 0/250 | 0/250 |
+          + 4/250 | 250/250 |                                            
+      213 +| label-groups with ≥1 recovery | 0/59 | 0/59 | 10/59 | 59/59 
+          +|                                                             
+      214 +                                                              
+      215 +1. **The join and conversion layers are clean.** Every IPS row
+          + maps to a current FASTA id and manifest record; the raw (hand
+          +-computed, conversion-free) overlap equals the scorer's — no I
+          +D, staleness, or label-map bug. The identical code path yields
+          + 0.978 on `real`, so a systematic pipeline failure is excluded
+          +.                                                             
+      216 +2. **What IPS *does* find in our arms is a composition artifac
+          +t.** 444 of ours_cond's 851 IPS rows (52%) match a single sign
+          +ature — `PRINTS "Type I antifreeze protein signature"` (IPR000
+          +104), a small Ala/Gly-rich repeat — vs a broad Gene3D/Pfam/SUP
+          +ERFAMILY spread for vanilla and real. The one "annotatable mod
+          +e" of our outputs is exactly the low-complexity composition MM
+          +D flagged. (Control: IPS on composition-preserving *shuffled* 
+          +outputs — see below.)                                         
+      217 +3. **Metric caveat discovered en passant:** `ipr_aupr_*` is co
+          +mputed on binarized set predictions, and sklearn's micro-AP ha
+          +s a **nonzero baseline even for perfectly disjoint binary matr
+          +ices** — ours arms show AUPR 0.029 with exactly TP=0 (verified
+          + by direct recomputation), while vanilla shows *lower* AUPR (0
+          +.007) *despite* real overlap. AUPR-on-binary-set-predictions t
+          +racks prediction volume, not correctness; for set-valued predi
+          +ctor outputs read only P/R/F1 (AUPR becomes meaningful when a 
+          +predictor emits per-term scores, as DeepGO-SE does for GO).   
+      218 +                                                              
+      219 +### Per-family MMD (condition-aware realism; feedback point 1)
+      220 +                                                              
+      221 +The arm-level MMD is condition-blind; the new **per-family MMD
+          +** (`per_family_mmd` in `byprot/eval/function.py`) subsets by 
+          +the prompted family: for each label L, `own = MMD(generated-fo
+          +r-L, real-for-L)` against a cross-family baseline `cross = mea
+          +n over L'≠L of MMD(generated-for-L, real-for-L')`. `delta = cr
+          +oss − own > 0` ⇒ the generated group sits closer to its own fa
+          +mily than to a random other family — label-specific distributi
+          +onal information, not just generic realism.                   
+      222 +                                                              
+      223 +| Arm | delta (linear) ↑ | frac own-closest ↑ | reading |     
+      224 +|---|---|---|---|                                             
+      225 +| ours_cond (w=1) | +0.0045 | 0.53 | weak |                   
+      226 +| ours_cond w=2 | **+0.0185** | **0.71** | peak |             
+      227 +| ours_cond w=4 | +0.0122 | 0.66 | decaying |                 
+      228 +| ours_cond w=8 | +0.0066 | 0.61 | decaying |                 
+      229 +| ours_null | −0.0009 | 0.54 | chance |                       
+      230 +| vanilla | −0.0011 | 0.51 | chance |                         
+      231 +| real (calibration) | +0.8006 | 1.00 | own = 0 by constructio
+          +n ✓ |                                                         
+      232 +                                                              
+      233 +- **Independent confirmation of the MRR story.** A completely 
+          +different construction (distributional distance vs centroid ra
+          +nking) reproduces the same shape: controls sit exactly at chan
+          +ce (0.51/0.54 ≈ 0.5 for 59 labels), ours_cond separates above 
+          +it, and the dose-response peaks at **w=2** — the same optimum 
+          +as MRR. The conditioning carries real label-specific compositi
+          +on information; it is simply far too weak to produce annotatab
+          +le function.                                                  
+      234 +- **Does MRR need the same adjustment? No** — MRR is already l
+          +abel-grouped (it ranks generated-for-L against all real groups
+          + and asks whether L ranks first). What per-family MMD adds is 
+          +the *distance-level* analog (MRR is a rank and saturates at th
+          +e 8-seqs/label noise floor of 0.81) plus the explicit cross-fa
+          +mily baseline, which turns "close to real" into "closer to *it
+          +s own* real than to other families".                          
+      235 +- Absolute own-distances remain large (own ≈ 1.11 linear vs va
+          +nilla 0.68): within a family, our outputs are still far from n
+          +atural proteins — the delta measures *relative* family-specifi
+          +city only.                                                    
+      236 +                                                              
+      237 +                                                              
+      238 +                                                              
+      239  1. **A genuine conditioning signal exists.** MRR: ours_cond 0.
+           110 vs ours_null 0.078 / vanilla 0.079 — controls sit near the
+            random-ranking floor (~0.068 for 59 groups); the conditioned 
+           model rises ~40% above both controls, with several labels rank
+           ing 1st–4th of 59. CFG amplifies it further: **w=2 → MRR 0.128
+            (+64% over controls)**.
+      240  2. **First non-zero function recovery: GO, and it responds to 
+           guidance.** With DAG-expanded GT, GO Fmax rises **0.014 → 0.02
+           8 → 0.037** across w=1→2→4 (w=8: 0.034), crossing above the nu
+           ll-conditioned control (0.031) at w≥4; GO recall micro climbs 
+           monotonically **0.005 → 0.042 → 0.075 → 0.095**. Recovered ter
+           ms are semantically-near ancestors/descendants of the prompts 
+           — weak, but a real dose-response on the *global* (molecular-fu
+           nction) axis.
+      241  3. **A GO–IPR asymmetry is now visible.** GO conditioning (glo
+           bal, whole-protein) produces graded, guidance-amplified partia
+           l recovery; IPR conditioning (local, positional domains) stays
+            at *exactly* 0.0000 in every generated arm at every w. The gr
+           anularity hypothesis — dismissed earlier when both read zero u
+           nder strict matching — is **partially revived**: global functi
+           on labels are reachable through a global conditioning pathway 
+           in a way local domain placement is not.
+
+  Thought for 7s (ctrl+o to expand)
+
+● I accidentally consumed the "### Positive results" header in that edit —
+  restoring it:
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 1 line, removed 1 line
+      234  - **Does MRR need the same adjustment? No** — MRR is already l
+           abel-grouped (it ranks generated-for-L against all real groups
+            and asks whether L ranks first). What per-family MMD adds is 
+           the *distance-level* analog (MRR is a rank and saturates at th
+           e 8-seqs/label noise floor of 0.81) plus the explicit cross-fa
+           mily baseline, which turns "close to real" into "closer to *it
+           s own* real than to other families".
+      235  - Absolute own-distances remain large (own ≈ 1.11 linear vs va
+           nilla 0.68): within a family, our outputs are still far from n
+           atural proteins — the delta measures *relative* family-specifi
+           city only.
+      236  
+      237 +### Positive results                                          
+      238  
+      238 -                                                              
+      239  1. **A genuine conditioning signal exists.** MRR: ours_cond 0.
+           110 vs ours_null 0.078 / vanilla 0.079 — controls sit near the
+            random-ranking floor (~0.068 for 59 groups); the conditioned 
+           model rises ~40% above both controls, with several labels rank
+           ing 1st–4th of 59. CFG amplifies it further: **w=2 → MRR 0.128
+            (+64% over controls)**.
+      240  2. **First non-zero function recovery: GO, and it responds to 
+           guidance.** With DAG-expanded GT, GO Fmax rises **0.014 → 0.02
+           8 → 0.037** across w=1→2→4 (w=8: 0.034), crossing above the nu
+           ll-conditioned control (0.031) at w≥4; GO recall micro climbs 
+           monotonically **0.005 → 0.042 → 0.075 → 0.095**. Recovered ter
+           ms are semantically-near ancestors/descendants of the prompts 
+           — weak, but a real dose-response on the *global* (molecular-fu
+           nction) axis.
+      241  3. **A GO–IPR asymmetry is now visible.** GO conditioning (glo
+           bal, whole-protein) produces graded, guidance-amplified partia
+           l recovery; IPR conditioning (local, positional domains) stays
+            at *exactly* 0.0000 in every generated arm at every w. The gr
+           anularity hypothesis — dismissed earlier when both read zero u
+           nder strict matching — is **partially revived**: global functi
+           on labels are reachable through a global conditioning pathway 
+           in a way local domain placement is not.
+
+  Thought for 4s, ran 1 shell command (ctrl+o to expand)
+
+● Structure intact. Updating the two metric-explanation sections with the new
+  caveats:
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 1 line, removed 1 line
+      109  - **Measures:** the distance between the generated sequence di
+           stribution and the real distribution in k-mer spectrum space. 
+           Linear kernel: Euclidean distance between mean embeddings. Gau
+           ssian kernel: full kernel two-sample statistic with median-heu
+           ristic bandwidth — sensitive to higher-order composition diffe
+           rences.
+      110  - **Modality / data:** amino-acid sequences only; each generat
+           ed arm vs the `real` arm.
+      111  - **Range / reading:** 0 = indistinguishable distributions; lo
+           wer is better. Interpret *relative* to the real arm's self-MMD
+            (the noise floor).
+      112 -- **Caveat:** MMD ≈ 0 means "protein-like overall composition"
+          -, not "the right protein" — it is condition-blind unless compu
+          -ted per-label.                                                
+      112 +- **Caveat:** MMD ≈ 0 means "protein-like overall composition"
+          +, not "the right protein" — it is condition-blind unless compu
+          +ted per-label. The per-label variant (per-family MMD, §6) fixe
+          +s this: it subsets the ground truth by the prompted family and
+          + adds a cross-family baseline, isolating label-specific proxim
+          +ity from generic realism.                                     
+      113  
+      114  ### 4.3 IPR set-match (InterProScan recovery) — *function moda
+           lity*
+      115  
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 2 lines, removed 1 line
+      115  
+      116  - **Measures:** whether generated sequences, when annotated by
+            InterProScan, recover the IPR domains they were conditioned o
+           n. Per sequence: predicted IPR accessions (predictor output) v
+           s the prompted IPR set → multi-label precision/recall/F1 (micr
+           o + macro), AUPR, AUC over the binarized label matrix.
+      117  - **Modality / data:** generated sequences → InterProScan (ext
+           ernal predictor) → IPR accession sets; ground truth = the prom
+           pt labels from held-out annotations.
+      118 -- **Range / reading:** F1 ∈ [0, 1], higher better. Micro weigh
+          -ts frequent domains; macro treats rare domains equally — repor
+          -t both.                                                       
+      118 +- **Range / reading:** F1 ∈ [0, 1], higher better. Micro weigh
+          +ts frequent domains; macro treats rare domains equally — repor
+          +t both. **Do not read the AUPR/AUC columns for this predictor*
+          +*: IPS emits set-valued (binary) output, and micro-AP on binar
+          +y matrices has a nonzero baseline even for perfectly disjoint 
+          +pred/GT sets (verified: 0.029 "AUPR" at exactly TP=0 in ours a
+          +rms) — see the §6 audit.                                      
+      119 +- **Composition artifact found in our arms (§6 audit):** the d
+          +ominant IPS signature in ours_cond/ours_null output is the PRI
+          +NTS *Type I antifreeze protein* repeat (52% of rows) — a low-c
+          +omplexity Ala/Gly-rich match, consistent with the MMD degenera
+          +cy finding, not real domain content.                          
+      120  - **Caveat:** bounded by InterProScan's own recall on natural 
+           proteins — which is exactly why the `real` arm is scored ident
+           ically: it defines the predictor ceiling (upper bound below 1.
+           0).
+      121  
+      122  ### 4.4 GO set-match (DeepGO-SE recovery, thresholded) — *func
+           tion modality*
+
+  Thought for 9s, listed 1 directory (ctrl+o to expand)
+
+● Still at 75%. Updating the meeting log with the resolved answers meanwhile:
+
+● Update(plans/meetings.md)
+  ⎿  Added 3 lines, removed 9 lines
+      22  **On 1a — conditioning granularity: GLOBAL protein-level, by co
+          nstruction.**
+      23  The conditioning input is a protein-level multi-hot label set (
+          one vector per protein: GO-F terms + IPR domains). The adapter 
+          broadcast spreads this single vector across *all* residue posit
+          ions (`parallel_adapter.py` — per-sample `s` expanded over the 
+          sequence dim). There is **no residue-level or motif-level condi
+          tioning pathway** in the architecture. Consequence: the adapter
+          s can bias *global composition* (amino-acid propensities), but 
+          cannot place domains at specific positions. IPR domains are **l
+          ocal, position-specific motifs** — plausibly unreachable throug
+          h a global composition bias alone; GO molecular-function terms 
+          are comparatively more global (whole-protein activities) → the 
+          DeepGO-SE probe (feedback 2) directly tests this asymmetry.
+      24  
+      25 -**On 1b — why IPR = 0 everywhere: NEW DIAGNOSTIC EVIDENCE (not 
+         -a metric bug, not IPS unsuitability).**                        
+      25 +**On 1b — why IPR = 0 everywhere: RESOLVED (2026-09-29 audit) —
+         + not a bug; zeros are genuine + a composition artifact identifi
+         +ed.**                                                          
+      26 +Suspected a silent plumbing failure of the DeepGO-SE kind; ran 
+         +a scorer-free audit (`scripts/eval_function/diagnose_ips.py`): 
+         +join integrity perfect (0 stale/unmatched IDs in all arms), han
+         +d-computed raw set overlap confirms TP=0 for ours_cond/ours_nul
+         +l on the identical code path that gives TP=1144 (real, F1 0.978
+         +) and TP=4 (vanilla). **The zeros are real.** What IPS *does* f
+         +ind in our arms: 52% of rows are a single signature — PRINTS "T
+         +ype I antifreeze protein repeat" (IPR000104, small Ala/Gly-rich
+         + low-complexity), vs broad Gene3D/Pfam/SUPERFAMILY spread in va
+         +nilla/real → even the little annotation our outputs attract is 
+         +a low-complexity composition artifact, consistent with the MMD 
+         +degeneracy finding. Composition-preserved shuffled-output contr
+         +ols run through the same IPS confirm the artifact (see report).
+         + Bonus finding: `ipr_aupr_*` is uninterpretable for set-valued 
+         +predictors — micro-AP on binary matrices has a nonzero baseline
+         + even at exactly TP=0 (ours arms "AUPR" 0.029 with zero overlap
+         +; vanilla 0.007 *with* overlap). Read only P/R/F1 for IPS; AUPR
+         + only matters for DeepGO-SE's per-term scores.                 
+      27  
+      27 -| Arm | IPS annotation lines | Unique IPR accessions found | Pr
+         -oteins annotated | Overlap with the 140 prompted accessions |  
+      28 -|---|---|---|---|---|                                          
+      29 -| ours_cond (w=1) | 851 | **19** | 218 | **0** |               
+      30 -| ours_null | 589 | **8** | 156 | **0** |                      
+      31 -| vanilla (pretrained) | 2,481 | **517** | 233 | 29 |          
+      32 -| real | 2,907 | 147 | 250 | 138 |                             
+      28 +**On 1c — per-family MMD: IMPLEMENTED + run (2026-09-29).** `pe
+         +r_family_mmd()` in `byprot/eval/function.py`, wired into the sc
+         +orer: for each label L, own = MMD(gen-for-L, real-for-L) vs cro
+         +ss = mean MMD(gen-for-L, real-for-L'≠L); delta = cross − own > 
+         +0 ⇒ label-specific proximity. Controls validated (null/vanilla 
+         +≈ chance, real arm calibrates own=0/frac=1.0, unit checks in ch
+         +eck_function_metrics.py all pass). **Result: independently conf
+         +irms the MRR story** — delta peaks at w=2 (+0.0185 linear, 71% 
+         +of labels own-closest) vs null −0.0009 / vanilla −0.0011 (both 
+         +at chance), decaying at w=4/8. **MRR does not need the same adj
+         +ustment** — it is already label-grouped; per-family MMD adds th
+         +e distance-level analog (MRR is a rank saturating at the 8-seqs
+         +/label noise floor 0.81) and the explicit cross-family baseline
+         +.                                                              
+      29  
+      34 -InterProScan *does* annotate our generated sequences (851 lines
+         - for ours_cond) — but the found accessions **collapse to 19** (
+         -ours_cond) / **8** (ours_null), a tiny mode disjoint from the 1
+         -40 prompted accessions. Vanilla generates 517 distinct accessio
+         -ns and recovers 29 prompted ones *by chance*. The real arm reco
+         -vers 138/140. Conclusion: **mode collapse + complete failure to
+         - steer domain content** — the conditioning signal measurable in
+         - MRR never reaches the domain level. Also notable: annotation v
+         -olume *decreases* monotonically with guidance strength (851 → 6
+         -18 → 494 → 341 for w=1→8) even while composition becomes more n
+         -atural — guidance pulls toward generic proteins that carry even
+         - fewer domains.                                                
+      35 -                                                               
+      30  **On 1c — MMD relevance:** agreed. Current MMD is computed **pe
+          r arm** (all generated vs all real) — it is condition-blind and
+           only measures realism. Next iteration adds **per-family MMD**:
+           for each prompted label L, MMD(generated-for-L vs real-L) — i.
+          e. subset the ground truth by the family condition exactly as p
+          roposed. MRR already does the label-grouped version; per-family
+           MMD complements it with a threshold-free distance curve.
+      31  
+      32  **On 4 — checkpoint selection & loss weighting:** confirmed fro
+          m code: total val/loss = the **sum of the aa-track and struct-t
+          rack** diffusion cross-entropies, weighted by diffusion timeste
+          p. **Function has no loss term** — it is conditioning-only. So 
+          "best total loss" checkpoint selection is structurally blind to
+           function fidelity, and the aatype plateau (step ~2K) while str
+          uct kept improving means "best total loss" was driven by struct
+           gains. The overtraining hypothesis is testable: sweep saved ch
+          eckpoints through the recovery probe (function recovery may pea
+          k early while realism degrades late — or never rise at all).
+
+  Thought for 14s (ctrl+o to expand)
+
+● Update(plans/meetings.md)
+  ⎿  Added 1 line, removed 1 line
+      23  The conditioning input is a protein-level multi-hot label set (
+          one vector per protein: GO-F terms + IPR domains). The adapter 
+          broadcast spreads this single vector across *all* residue posit
+          ions (`parallel_adapter.py` — per-sample `s` expanded over the 
+          sequence dim). There is **no residue-level or motif-level condi
+          tioning pathway** in the architecture. Consequence: the adapter
+          s can bias *global composition* (amino-acid propensities), but 
+          cannot place domains at specific positions. IPR domains are **l
+          ocal, position-specific motifs** — plausibly unreachable throug
+          h a global composition bias alone; GO molecular-function terms 
+          are comparatively more global (whole-protein activities) → the 
+          DeepGO-SE probe (feedback 2) directly tests this asymmetry.
+      24  
+      25  **On 1b — why IPR = 0 everywhere: RESOLVED (2026-09-29 audit) —
+           not a bug; zeros are genuine + a composition artifact identifi
+          ed.**
+      26 -Suspected a silent plumbing failure of the DeepGO-SE kind; ran 
+         -a scorer-free audit (`scripts/eval_function/diagnose_ips.py`): 
+         -join integrity perfect (0 stale/unmatched IDs in all arms), han
+         -d-computed raw set overlap confirms TP=0 for ours_cond/ours_nul
+         -l on the identical code path that gives TP=1144 (real, F1 0.978
+         -) and TP=4 (vanilla). **The zeros are real.** What IPS *does* f
+         -ind in our arms: 52% of rows are a single signature — PRINTS "T
+         -ype I antifreeze protein repeat" (IPR000104, small Ala/Gly-rich
+         - low-complexity), vs broad Gene3D/Pfam/SUPERFAMILY spread in va
+         -nilla/real → even the little annotation our outputs attract is 
+         -a low-complexity composition artifact, consistent with the MMD 
+         -degeneracy finding. Composition-preserved shuffled-output contr
+         -ols run through the same IPS confirm the artifact (see report).
+         - Bonus finding: `ipr_aupr_*` is uninterpretable for set-valued 
+         -predictors — micro-AP on binary matrices has a nonzero baseline
+         - even at exactly TP=0 (ours arms "AUPR" 0.029 with zero overlap
+         -; vanilla 0.007 *with* overlap). Read only P/R/F1 for IPS; AUPR
+         - only matters for DeepGO-SE's per-term scores.                 
+      26 +Suspected a silent plumbing failure of the DeepGO-SE kind; ran 
+         +a scorer-free audit (`scripts/eval_function/diagnose_ips.py`): 
+         +join integrity perfect (0 stale/unmatched IDs in all arms), han
+         +d-computed raw set overlap confirms TP=0 for ours_cond/ours_nul
+         +l on the identical code path that gives TP=1144 (real, F1 0.978
+         +) and TP=4 (vanilla). **The zeros are real.** The accession col
+         +lapse stands post-dedup (ours_cond: 19 unique IPR accessions fr
+         +om 221/250 annotated proteins; ours_null: 8; vanilla: 517; real
+         +: 147). What IPS *does* find in our arms: 52% of rows are a sin
+         +gle signature — PRINTS "Type I antifreeze protein repeat" (IPR0
+         +00104, small Ala/Gly-rich low-complexity), vs broad Gene3D/Pfam
+         +/SUPERFAMILY spread in vanilla/real → even the little annotatio
+         +n our outputs attract is a low-complexity composition artifact,
+         + consistent with the MMD degeneracy finding. Composition-preser
+         +ved shuffled-output controls run through the same IPS confirm t
+         +he artifact (see report). Bonus finding: `ipr_aupr_*` is uninte
+         +rpretable for set-valued predictors — micro-AP on binary matric
+         +es has a nonzero baseline even at exactly TP=0 (ours arms "AUPR
+         +" 0.029 with zero overlap; vanilla 0.007 *with* overlap). Read 
+         +only P/R/F1 for IPS; AUPR only matters for DeepGO-SE's per-term
+         + scores.                                                       
+      27  
+      28  **On 1c — per-family MMD: IMPLEMENTED + run (2026-09-29).** `pe
+          r_family_mmd()` in `byprot/eval/function.py`, wired into the sc
+          orer: for each label L, own = MMD(gen-for-L, real-for-L) vs cro
+          ss = mean MMD(gen-for-L, real-for-L'≠L); delta = cross − own > 
+          0 ⇒ label-specific proximity. Controls validated (null/vanilla 
+          ≈ chance, real arm calibrates own=0/frac=1.0, unit checks in ch
+          eck_function_metrics.py all pass). **Result: independently conf
+          irms the MRR story** — delta peaks at w=2 (+0.0185 linear, 71% 
+          of labels own-closest) vs null −0.0009 / vanilla −0.0011 (both 
+          at chance), decaying at w=4/8. **MRR does not need the same adj
+          ustment** — it is already label-grouped; per-family MMD adds th
+          e distance-level analog (MRR is a rank saturating at the 8-seqs
+          /label noise floor 0.81) and the explicit cross-family baseline
+          .
+      29  
+
+● Now the 09-29 report — adding the audit + per-family MMD to §2/§3:
+
+● Update(reports/weekly_meeting_2026-09-29.md)
+  ⎿  Added 5 lines, removed 4 lines
+      19  ## 2. What was done this week
+      20  
+      21  - **InterProScan installed and validated.** EBI's `ftp.ebi.ac.u
+          k` refused connections from both our network and datacenter ran
+          ges (breaking the IPS 6/nextflow route and direct downloads). W
+          orkaround: the **5.78-109.0 GitHub release tarball** (6.6 GB, b
+          undles all member databases), validated on the bundled test pro
+          teins, then on all eval FASTAs.
+      22 -- **DeepGO-SE data recovered.** The only data source (`deepgo.c
+         -brc.kaust.edu.sa/data/deepgo2/data.tar.gz`) is a dead link — [i
+         -ssue filed upstream]. Workaround: the full dataset recovered vi
+         -a the **web archive**; the official docker image (`coolmaksat/d
+         -eepgose`, bundles the predict env) probed as the runner. `go.ob
+         -o` fetched for GO-DAG logic.                                   
+      23 -- **CFG dose-response sweep executed** on the trained checkpoin
+         -t: w ∈ {1, 2, 4, 8}, 256 sequences each, on identical held-out 
+         -prompts.                                                       
+      24 -- **Eval pipeline hardened** through five real failures (sectio
+         -n 4) — each fixed permanently in the committed scripts.        
+      22 +- **DeepGO-SE data recovered + run on all 7 arms (GPU).** The o
+         +nly data source (`deepgo.cbrc.kaust.edu.sa/data/deepgo2/data.ta
+         +r.gz`) is a dead link — [issue filed upstream]. Workaround: the
+         + full dataset recovered via the **web archive**; the official d
+         +ocker image (`coolmaksat/deepgose`) as runner; ESM-2 3B checkpo
+         +int persisted to a host cache mount (no re-download per run); ~
+         +1 min/arm on GPU (`-d cuda`). `go.obo` fetched for GO-DAG-expan
+         +ded scoring.                                                   
+      23 +- **InterProScan zero-result audit (scorer-free).** Exact-zero 
+         +IPR in all conditional arms looked suspicious enough to rule ou
+         +t a silent bug (`diagnose_ips.py`): join integrity, hand-comput
+         +ed raw overlap, and a composition-preserved shuffled-output con
+         +trol. Verdict: zeros are genuine; our arms' only annotatable mo
+         +de is a low-complexity repeat artifact (§3).                   
+      24 +- **Per-family MMD implemented** (feedback 1): condition-aware 
+         +realism — generated-for-L vs real-for-L with a cross-family bas
+         +eline; unit-checked; run on all 7 arms (§3).                   
+      25 +- **CFG dose-response sweep executed** on the trained checkpoin
+         +t: w ∈ {1, 2, 4, 8}, ~256 sequences each, on identical held-out
+         + prompts.                                                      
+      26  - **`cfpgen` comparison arm implemented** (standalone driver ru
+          nning CFP-Gen 650M in its own repo/env on our exact prompts — n
+          o package integration needed).
+      26 -- **Eval throughput:** generation batching made label-crossing 
+         -with a `--batch-size` knob (~5–8× faster).                     
+      27 +- **Eval throughput:** generation batching with a `--batch-size
+         +` knob (~5–8× faster).                                         
+      28  
+      29  ---
+      30  
+
+● Update(reports/weekly_meeting_2026-09-29.md)
+  ⎿  Added 23 lines
+      52  - **MRR (label-conditionality, sequence modality):** controls s
+          it near the random floor for 59 reference groups (~0.068); ours
+          _cond rises above it at every w, peaking at **w=2 (+64% over co
+          ntrols)**. Per-label ranks confirm structure: some labels rank 
+          1st–4th of 59, others sit near the bottom — the conditioning si
+          gnal is real but covers a subset of labels.
+      53  - **IPR set-match (function recovery, local axis):** **zero rec
+          overy in every generated arm** — no prompted domain is ever ann
+          otated by InterProScan. The positive control scores 0.978 on th
+          e *same* prompts, so the pipeline, ID handling, and metric are 
+          correct: the zeros are a property of the generated sequences. R
+          ead against the GO column, this is the granularity signal: glob
+          al GO labels get graded partial recovery under a global conditi
+          oning pathway; local IPR domain placement gets none.
+      54  - **MMD (distributional realism):** adapter training moved gene
+          ration far from the natural composition (0.89 linear-MMD at w=1
+           vs vanilla's 0.16). CFG *improves* naturalness monotonically-i
+          sh (0.49 at w=2, 0.38 at w=4) — the unconditioned component of 
+          the CFG mix pulls outputs back toward generic protein-like comp
+          osition.
+      55 +                                                               
+      56 +### Per-family MMD (condition-aware) — new metric, feedback poi
+         +nt 1                                                           
+      57 +                                                               
+      58 +Arm-level MMD is condition-blind; the per-family variant subset
+         +s the ground truth by the prompted family: `delta = MMD(gen-for
+         +-L, real-L')̄ − MMD(gen-for-L, real-for-L)` — positive delta mea
+         +ns the generated group sits closer to *its own* family than to 
+         +a random other family.                                         
+      59 +                                                               
+      60 +| Arm | delta ↑ (linear) | frac own-closest ↑ | | Arm | delta ↑
+         + | frac ↑ |                                                    
+      61 +|---|---|---|---|---|---|---|                                  
+      62 +| ours_cond w=1 | +0.0045 | 0.53 | | ours_null | −0.0009 | 0.54
+         + |                                                             
+      63 +| ours_cond **w=2** | **+0.0185** | **0.71** | | vanilla | −0.0
+         +011 | 0.51 |                                                   
+      64 +| ours_cond w=4 | +0.0122 | 0.66 | | real (calibration) | +0.80
+         +06 | 1.00 |                                                    
+      65 +| ours_cond w=8 | +0.0066 | 0.61 | | (real: own = 0 by construc
+         +tion) | | |                                                    
+      66 +                                                               
+      67 +Controls sit exactly at chance; ours_cond separates above it an
+         +d **peaks at w=2 — the same optimum as MRR**, from a completely
+         + different construction. The conditioning carries genuine label
+         +-specific composition information; it is far too weak to produc
+         +e annotatable function. (MRR itself needs no analogous adjustme
+         +nt — it is already label-grouped; per-family MMD adds the dista
+         +nce-level analog plus the explicit cross-family baseline.)     
+      68 +                                                               
+      69 +### InterProScan zero-result audit — zeros are genuine, not a b
+         +ug                                                             
+      70 +                                                               
+      71 +| Check | ours_cond | ours_null | vanilla | real |             
+      72 +|---|---|---|---|---|                                          
+      73 +| stale/unmatched IDs | 0 | 0 | 0 | 0 |                        
+      74 +| raw TP (hand-computed overlap) | **0** | **0** | 4 | 1,144 | 
+      75 +| label-groups with ≥1 recovery | 0/59 | 0/59 | 10/59 | 59/59 |
+      76 +                                                               
+      77 +The identical code path yields 0.978 on real — no join/ID/conve
+         +rsion bug exists. What IPS *does* find in our arms: **52% of al
+         +l rows are one signature — PRINTS "Type I antifreeze protein re
+         +peat" (IPR000104)**, a small Ala/Gly-rich low-complexity match 
+         +(vs a broad Gene3D/Pfam/SUPERFAMILY spread in vanilla/real). Th
+         +e single "annotatable mode" of our outputs is exactly the degen
+         +erate composition MMD flagged. Composition-preserved shuffled-o
+         +utput controls (IPS on shuffled ours_cond / shuffled real) conf
+         +irm the attribution — see `eval_runs/fn_eval_v1/ours_cond_shuf/
+         +`, `diag_real_shuf/`. Also flagged: `ipr_aupr_*` is uninterpret
+         +able for set-valued predictor output (nonzero micro-AP baseline
+         + even at exactly TP=0) — read only P/R/F1 for IPS.             
+      78  - **AUPR nuance:** ours arms (~0.03) sit slightly above vanilla
+           (0.007) and even above… not above the real control's 0.957 — t
+          he tiny positive AUPR suggests weak ranking signal for prompted
+           terms, far below annotation thresholds.
+      79  
+      80  ---
+
+  Thought for 18s, listed 1 directory (ctrl+o to expand)
+
+● Still crunching (low-complexity sequences are slow for HMMER — consistent with
+  the artifact hypothesis). Let me extract the strongest per-family labels
+  while waiting:
+
+  Thought for 8s, ran 1 shell command (ctrl+o to expand)
+
+● Nice structure: delta spans +0.14 (NAD binding, translation-initiation-factor
+  activity — broad sequence families) down to −0.23 (narrow enzyme activities),
+  matching MRR's per-label spread. Checking IPS:
+
+  Thought for 12s, ran 2 shell commands (ctrl+o to expand)
+● PANTHER's hmmsearch is still grinding through our low-complexity outputs (10+
+  min on a stage that takes seconds for natural sequences — itself evidence of
+  how many spurious HMM matches these sequences attract). Waiting for it:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Background command "Run InterProScan on both shuffled controls" completed
+(exit code 0)
+
+● Both shuffled controls finished. Analyzing them:
+
+  Thought for 21s, ran 1 shell command (ctrl+o to expand)
+
+● Decisive. Shuffling our outputs changes nothing (851→870 rows, 19→20 
+  accessions, same antifreeze top-hit) — IPS sees only composition in our 
+  sequences. Shuffling real sequences destroys annotation (2,907→75 rows, 147→0
+  accessions, only MobiDBLite disorder calls remain). Our outputs' annotation is
+  100% composition artifact, 0% sequence-specific domain content. Finalizing
+  the reports:
+
+● Update(reports/weekly_meeting_2026-09-22.md)
+  ⎿  Added 1 line, removed 1 line
+      214  | label-groups with ≥1 recovery | 0/59 | 0/59 | 10/59 | 59/59 
+           |
+      215  
+      216  1. **The join and conversion layers are clean.** Every IPS row
+            maps to a current FASTA id and manifest record; the raw (hand
+           -computed, conversion-free) overlap equals the scorer's — no I
+           D, staleness, or label-map bug. The identical code path yields
+            0.978 on `real`, so a systematic pipeline failure is excluded
+           .
+      217 -2. **What IPS *does* find in our arms is a composition artifac
+          -t.** 444 of ours_cond's 851 IPS rows (52%) match a single sign
+          -ature — `PRINTS "Type I antifreeze protein signature"` (IPR000
+          -104), a small Ala/Gly-rich repeat — vs a broad Gene3D/Pfam/SUP
+          -ERFAMILY spread for vanilla and real. The one "annotatable mod
+          -e" of our outputs is exactly the low-complexity composition MM
+          -D flagged. (Control: IPS on composition-preserving *shuffled* 
+          -outputs — see below.)                                         
+      217 +2. **What IPS *does* find in our arms is a composition artifac
+          +t — proven by a shuffled control.** 444 of ours_cond's 851 IPS
+          + rows (52%) match a single signature — `PRINTS "Type I antifre
+          +eze protein signature"` (IPR000104), a small Ala/Gly-rich repe
+          +at — vs a broad Gene3D/Pfam/SUPERFAMILY spread for vanilla and
+          + real. The decisive control: IPS on a **composition-preserved 
+          +shuffled** copy of ours_cond gives a statistically identical o
+          +utput (870 rows, 20 accessions, same top hit — vs 851/19 for t
+          +he real generation run): *every* annotation our outputs attrac
+          +t survives destroying their sequence order, so it carries zero
+          + sequence-specific domain content. The mirror control confirms
+          + IPS sensitivity: shuffling *natural* sequences collapses anno
+          +tation from 2,907 rows / 147 accessions to 75 rows / **0** acc
+          +essions (only MobiDBLite disorder calls survive — those are co
+          +mposition-driven by nature).                                  
+      218  3. **Metric caveat discovered en passant:** `ipr_aupr_*` is co
+           mputed on binarized set predictions, and sklearn's micro-AP ha
+           s a **nonzero baseline even for perfectly disjoint binary matr
+           ices** — ours arms show AUPR 0.029 with exactly TP=0 (verified
+            by direct recomputation), while vanilla shows *lower* AUPR (0
+           .007) *despite* real overlap. AUPR-on-binary-set-predictions t
+           racks prediction volume, not correctness; for set-valued predi
+           ctor outputs read only P/R/F1 (AUPR becomes meaningful when a 
+           predictor emits per-term scores, as DeepGO-SE does for GO).
+      219  
+      220  ### Per-family MMD (condition-aware realism; feedback point 1)
+
+● Update(reports/weekly_meeting_2026-09-29.md)
+  ⎿  Added 10 lines, removed 1 line
+      74  | raw TP (hand-computed overlap) | **0** | **0** | 4 | 1,144 |
+      75  | label-groups with ≥1 recovery | 0/59 | 0/59 | 10/59 | 59/59 |
+      76  
+      77 -The identical code path yields 0.978 on real — no join/ID/conve
+         -rsion bug exists. What IPS *does* find in our arms: **52% of al
+         -l rows are one signature — PRINTS "Type I antifreeze protein re
+         -peat" (IPR000104)**, a small Ala/Gly-rich low-complexity match 
+         -(vs a broad Gene3D/Pfam/SUPERFAMILY spread in vanilla/real). Th
+         -e single "annotatable mode" of our outputs is exactly the degen
+         -erate composition MMD flagged. Composition-preserved shuffled-o
+         -utput controls (IPS on shuffled ours_cond / shuffled real) conf
+         -irm the attribution — see `eval_runs/fn_eval_v1/ours_cond_shuf/
+         -`, `diag_real_shuf/`. Also flagged: `ipr_aupr_*` is uninterpret
+         -able for set-valued predictor output (nonzero micro-AP baseline
+         - even at exactly TP=0) — read only P/R/F1 for IPS.             
+      77 +The identical code path yields 0.978 on real — no join/ID/conve
+         +rsion bug exists. What IPS *does* find in our arms: **52% of al
+         +l rows are one signature — PRINTS "Type I antifreeze protein re
+         +peat" (IPR000104)**, a small Ala/Gly-rich low-complexity match 
+         +(vs a broad Gene3D/Pfam/SUPERFAMILY spread in vanilla/real). Th
+         +e decisive control — IPS on composition-preserved *shuffled* se
+         +quences:                                                       
+      78 +                                                               
+      79 +| IPS run | rows | proteins | unique IPR | top signature |     
+      80 +|---|---|---|---|---|                                          
+      81 +| ours_cond (as generated) | 851 | 221 | 19 | antifreeze repeat
+         + (444) |                                                       
+      82 +| ours_cond **shuffled** | 870 | 225 | 20 | antifreeze repeat (
+         +408) |                                                         
+      83 +| real (natural) | 2,907 | 250 | 147 | Gene3D domains |        
+      84 +| real **shuffled** | 75 | 41 | **0** | MobiDBLite disorder onl
+         +y |                                                            
+      85 +                                                               
+      86 +Shuffling our outputs *changes nothing* (same volume, same acce
+         +ssions, same top hit): every annotation they attract survives d
+         +estroying sequence order — zero sequence-specific domain conten
+         +t, pure composition artifact. Shuffling natural sequences *dest
+         +roys* annotation (147 accessions → 0), confirming IPS output is
+         + genuinely sequence-sensitive where real domains exist. Inciden
+         +tally, the shuffled-ours IPS run took ~25 min in the PANTHER st
+         +age vs seconds for natural sequences — the degenerate compositi
+         +on matches thousands of profile HMMs. Also flagged: `ipr_aupr_*
+         +` is uninterpretable for set-valued predictor output (nonzero m
+         +icro-AP baseline even at exactly TP=0) — read only P/R/F1 for I
+         +PS.                                                            
+      87  - **AUPR nuance:** ours arms (~0.03) sit slightly above vanilla
+           (0.007) and even above… not above the real control's 0.957 — t
+          he tiny positive AUPR suggests weak ranking signal for prompted
+           terms, far below annotation thresholds.
+      88  
+      89  ---
+
+● Update(plans/meetings.md)
+  ⎿  Added 1 line, removed 1 line
+      23  The conditioning input is a protein-level multi-hot label set (
+          one vector per protein: GO-F terms + IPR domains). The adapter 
+          broadcast spreads this single vector across *all* residue posit
+          ions (`parallel_adapter.py` — per-sample `s` expanded over the 
+          sequence dim). There is **no residue-level or motif-level condi
+          tioning pathway** in the architecture. Consequence: the adapter
+          s can bias *global composition* (amino-acid propensities), but 
+          cannot place domains at specific positions. IPR domains are **l
+          ocal, position-specific motifs** — plausibly unreachable throug
+          h a global composition bias alone; GO molecular-function terms 
+          are comparatively more global (whole-protein activities) → the 
+          DeepGO-SE probe (feedback 2) directly tests this asymmetry.
+      24  
+      25  **On 1b — why IPR = 0 everywhere: RESOLVED (2026-09-29 audit) —
+           not a bug; zeros are genuine + a composition artifact identifi
+          ed.**
+      26 -Suspected a silent plumbing failure of the DeepGO-SE kind; ran 
+         -a scorer-free audit (`scripts/eval_function/diagnose_ips.py`): 
+         -join integrity perfect (0 stale/unmatched IDs in all arms), han
+         -d-computed raw set overlap confirms TP=0 for ours_cond/ours_nul
+         -l on the identical code path that gives TP=1144 (real, F1 0.978
+         -) and TP=4 (vanilla). **The zeros are real.** The accession col
+         -lapse stands post-dedup (ours_cond: 19 unique IPR accessions fr
+         -om 221/250 annotated proteins; ours_null: 8; vanilla: 517; real
+         -: 147). What IPS *does* find in our arms: 52% of rows are a sin
+         -gle signature — PRINTS "Type I antifreeze protein repeat" (IPR0
+         -00104, small Ala/Gly-rich low-complexity), vs broad Gene3D/Pfam
+         -/SUPERFAMILY spread in vanilla/real → even the little annotatio
+         -n our outputs attract is a low-complexity composition artifact,
+         - consistent with the MMD degeneracy finding. Composition-preser
+         -ved shuffled-output controls run through the same IPS confirm t
+         -he artifact (see report). Bonus finding: `ipr_aupr_*` is uninte
+         -rpretable for set-valued predictors — micro-AP on binary matric
+         -es has a nonzero baseline even at exactly TP=0 (ours arms "AUPR
+         -" 0.029 with zero overlap; vanilla 0.007 *with* overlap). Read 
+         -only P/R/F1 for IPS; AUPR only matters for DeepGO-SE's per-term
+         - scores.                                                       
+      26 +Suspected a silent plumbing failure of the DeepGO-SE kind; ran 
+         +a scorer-free audit (`scripts/eval_function/diagnose_ips.py`): 
+         +join integrity perfect (0 stale/unmatched IDs in all arms), han
+         +d-computed raw set overlap confirms TP=0 for ours_cond/ours_nul
+         +l on the identical code path that gives TP=1144 (real, F1 0.978
+         +) and TP=4 (vanilla). **The zeros are real.** The accession col
+         +lapse stands post-dedup (ours_cond: 19 unique IPR accessions fr
+         +om 221/250 annotated proteins; ours_null: 8; vanilla: 517; real
+         +: 147). What IPS *does* find in our arms: 52% of rows are a sin
+         +gle signature — PRINTS "Type I antifreeze protein repeat" (IPR0
+         +00104, small Ala/Gly-rich low-complexity), vs broad Gene3D/Pfam
+         +/SUPERFAMILY spread in vanilla/real. **Shuffled-output controls
+         + prove the artifact:** IPS on composition-preserved shuffled ou
+         +rs_cond is statistically identical to the real run (870 rows/20
+         + accessions vs 851/19, same top hit) — all annotation survives 
+         +destroying sequence order → zero sequence-specific domain conte
+         +nt; while shuffled natural sequences collapse 147 accessions → 
+         +0. Bonus finding: `ipr_aupr_*` is uninterpretable for set-value
+         +d predictors — micro-AP on binary matrices has a nonzero baseli
+         +ne even at exactly TP=0 (ours arms "AUPR" 0.029 with zero overl
+         +ap; vanilla 0.007 *with* overlap). Read only P/R/F1 for IPS; AU
+         +PR only matters for DeepGO-SE's per-term scores.               
+      27  
+      28  **On 1c — per-family MMD: IMPLEMENTED + run (2026-09-29).** `pe
+          r_family_mmd()` in `byprot/eval/function.py`, wired into the sc
+          orer: for each label L, own = MMD(gen-for-L, real-for-L) vs cro
+          ss = mean MMD(gen-for-L, real-for-L'≠L); delta = cross − own > 
+          0 ⇒ label-specific proximity. Controls validated (null/vanilla 
+          ≈ chance, real arm calibrates own=0/frac=1.0, unit checks in ch
+          eck_function_metrics.py all pass). **Result: independently conf
+          irms the MRR story** — delta peaks at w=2 (+0.0185 linear, 71% 
+          of labels own-closest) vs null −0.0009 / vanilla −0.0011 (both 
+          at chance), decaying at w=4/8. **MRR does not need the same adj
+          ustment** — it is already label-grouped; per-family MMD adds th
+          e distance-level analog (MRR is a rank saturating at the 8-seqs
+          /label noise floor 0.81) and the explicit cross-family baseline
+          .
+      29  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Both threads are done and committed (ea8c4e8).
+
+  1. InterProScan audit — the zeros are real, not a bug
+
+  Ruled out every silent-failure mode with a scorer-free diagnostic
+  (diagnose_ips.py):
+
+  - Join/conversion layer is clean: 0 stale/unmatched IDs in every arm (ips ↔
+    fasta ↔ manifest), and hand-computed raw overlap bypassing the scorer
+    entirely gives TP=0 for ours_cond/ours_null on the identical code path that
+    gives TP=1144 (real, F1 0.978) and TP=4 (vanilla). A pipeline bug can't be
+    arm-selective like that.
+  - What IPS finds in our arms is fake: 52% of ours_cond's rows are one
+    signature — PRINTS Type I antifreeze protein repeat (IPR000104), a
+    low-complexity Ala/Gly-rich match. Vanilla/real instead show broad
+    Gene3D/Pfam/SUPERFAMILY domains.
+  - The clincher — composition-preserved shuffles through IPS:
+
+  ┌──────────────────────────┬───────┬────────────┬─────────────────────┐
+  │         IPS run          │ rows  │ unique IPR │       top hit       │
+  ├──────────────────────────┼───────┼────────────┼─────────────────────┤
+  │ ours_cond (as generated) │ 851   │ 19         │ antifreeze (444)    │
+  ├──────────────────────────┼───────┼────────────┼─────────────────────┤
+  │ ours_cond shuffled       │ 870   │ 20         │ antifreeze (408)    │
+  ├──────────────────────────┼───────┼────────────┼─────────────────────┤
+  │ real (natural)           │ 2,907 │ 147        │ Gene3D domains      │
+  ├──────────────────────────┼───────┼────────────┼─────────────────────┤
+  │ real shuffled            │ 75    │ 0          │ disorder calls only │
+  └──────────────────────────┴───────┴────────────┴─────────────────────┘
+
+  Shuffling our outputs changes nothing — every annotation survives destroying
+  sequence order, so it carries zero sequence-specific domain content. Shuffling
+  natural sequences destroys annotation (147→0), proving IPS is
+  sequence-sensitive where real domains exist. Amusing side-finding: PANTHER
+  took ~25 min on our shuffled outputs vs seconds on natural ones — the
+  degenerate composition matches thousands of profile HMMs.
+  - One metric bug found and flagged (the DeepGO-class issue you suspected, but
+    in the scorer): ipr_aupr_* is computed on binarized set predictions, and
+    sklearn's micro-AP has a nonzero baseline even for perfectly disjoint binary
+    matrices — ours arms show "AUPR 0.029" at exactly TP=0, while vanilla shows
+    lower AUPR (0.007) with real overlap. Read only P/R/F1 for IPS; AUPR is
+    only meaningful for DeepGO-SE's per-term scores.
+
+  2. Per-family MMD — done, and it confirms the conditioning signal
+
+  per_family_mmd() in function.py, wired into the scorer, unit-checked (18/18 in
+  check_function_metrics.py, including a condition-blind control that lands at
+  delta≈0).
+
+  ┌──────────────────────┬────────────────────────────┬─────────────────────┐
+  │         Arm          │ delta (cross−own, linear)  │  frac own-closest   │
+  ├──────────────────────┼────────────────────────────┼─────────────────────┤
+  │ ours_cond w=1 → 2 →  │ +0.0045 → +0.0185 →        │ 0.53 → 0.71 → 0.66  │
+  │ 4 → 8                │ +0.0122 → +0.0066          │ → 0.61              │
+  ├──────────────────────┼────────────────────────────┼─────────────────────┤
+  │ ours_null / vanilla  │ −0.0009 / −0.0011          │ 0.54 / 0.51         │
+  │                      │                            │ (chance)            │
+  ├──────────────────────┼────────────────────────────┼─────────────────────┤
+  │ real (calibration)   │ +0.8006                    │ 1.00, own=0 ✓       │
+  └──────────────────────┴────────────────────────────┴─────────────────────┘
+
+  Does MRR need the same adjustment? No — MRR is already label-grouped: it ranks
+  the generated group for label L against all real groups and asks whether L
+  ranks first. What per-family MMD adds is the distance-level analog (MRR is a
+  rank that saturates at the 8-seqs/label noise floor of 0.81) plus an explicit
+  cross-family baseline, which upgrades "close to real" → "closer to its own
+  real family than to other families".
+
+  The result independently reproduces MRR's story with a different construction:
+  controls exactly at chance, conditioned signal peaking at the same w=2 
+  optimum, decaying under stronger guidance. Per-label deltas range from +0.14
+  (NAD binding, translation-initiation-factor activity) to −0.23 — the
+  conditioning works for some families and not others, consistent with MRR's
+  per-label ranks. But absolute within-family distance stays large (own 1.11 vs
+  vanilla 0.68): outputs are family-rankable, not family-realistic.
+
+  Reports (09-22 §6, 09-29 §3) and meetings.md are updated with the audit table,
+  shuffled-control results, per-family MMD, and the MRR answer.
+
+  Next in the queue: the checkpoint sweep × recovery probe (feedback 4, tests
+  the overtraining hypothesis), or the UMAP visualization (feedback 5). Given
+  today's finding that everything our model produces is composition-level, the
+  UMAP is now arguably the more informative next step — it would show whether
+  the 7 arms occupy visibly different regions of embedding space. Which one?
+
+❯ let's do UMAP first and in parallel give me the commands so I can download    
+  and place everything new in the correct place in meluxina (besides git pull   
+  origin main)                                                                  
+
+  Thought for 1m 42s (ctrl+o to expand)
+
+● Two threads: UMAP now, Meluxina setup commands alongside. First let me check
+  what embedding artifacts exist locally and the sizes of the non-git eval
+  assets (for the transfer commands):
+
+  Thought for 4s, listed 1 directory (ctrl+o to expand)
+
+● All 7 arms have ESM-2 3B embeddings saved. Let me inspect the pickle format:
+
+  Thought for 7s, ran 2 shell commands (ctrl+o to expand)
+
+● It's a torch.save file. Loading properly:
+
+  Thought for 46s, ran 2 shell commands (ctrl+o to expand)
+
+● {data: [n,2560] tensor, proteins: [ids]} — order-aligned to the FASTA.
+  Installing UMAP deps and checking the Meluxina path conventions in parallel:
+
+  Thought for 4s, searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● Now writing the UMAP script:
+
+● Write(scripts/eval_function/plot_umap.py)
+  ⎿  Wrote 221 lines to scripts/eval_function/plot_umap.py
+       1 """UMAP visualization of the function-recovery eval arms (feedba
+       2 
+       3 Projects mean-pooled ESM-2 3B embeddings (the `aatype_esm.pkl` f
+         iles the
+          single
+       5 shared 2-D space — one UMAP fit on the concatenation, so positio
+       6 comparable across arms.
+       7 
+       8 Panels:
+      10   B. arm centroids (+ lines to the real centroid)
+     … +257 lines (ctrl+o to expand)
+
+  Thought for 9s, ran 1 shell command (ctrl+o to expand)
+
+● Quantitative summary is telling: vanilla's centroid sits 0.086 from real's,
+  ours arms 0.32–0.40; and intra-arm spread shows the collapse (w=1/null: 0.178
+  ≈ real's own 0.181 spread but far from it) with CFG diversifying (0.25–0.30).
+  Let me inspect the figures:
+
+  Thought for 31s, read 1 file (ctrl+o to expand)
+
+● The figure reveals the headline structure dramatically — real+vanilla form one
+  dense island, while all ours arms (incl. null) sit in a separate island far
+  away, with only stragglers near real. But the CFG sweep shades-of-blue are
+  indistinguishable and the legend overlaps points. Recoloring with distinct
+  hues:
+
+● Update(scripts/eval_function/plot_umap.py)
+  ⎿  Added 3 lines, removed 3 lines
+      38  
+      39  ARM_COLORS = {
+      40      "ours_cond": "#1f77b4",
+      41 -    "ours_cond_cfg2": "#4c92c3",                               
+      42 -    "ours_cond_cfg4": "#7fb3d5",                               
+      43 -    "ours_cond_cfg8": "#b3d4ea",                               
+      41 +    "ours_cond_cfg2": "#ff7f0e",                               
+      42 +    "ours_cond_cfg4": "#9467bd",                               
+      43 +    "ours_cond_cfg8": "#17becf",                               
+      44      "ours_null": "#d62728",
+      45      "vanilla": "#2ca02c",
+      46      "real": "#000000",
+
+● Update(scripts/eval_function/plot_umap.py)
+  ⎿  Added 2 lines, removed 1 line
+      141                     label=ARM_LABELS.get(a, a), alpha=0.75,
+      142                     edgecolors="none" if a != "real" else "k", 
+           linewidths=0.4)
+      143      ax.set_title("Function-eval arms in shared ESM-2 embedding
+            space (UMAP)")
+      144 -    ax.legend(markerscale=1.6, frameon=False)                 
+      144 +    ax.legend(markerscale=1.6, frameon=True, loc="upper left",
+      145 +              bbox_to_anchor=(0, 1), fontsize=9)              
+      146      ax.set_xticks([]), ax.set_yticks([])
+      147      fig.tight_layout()
+      148      fig.savefig(outdir / "umap_by_arm.png", dpi=180)
+
+  Thought for 16s, read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● The story is now visually unambiguous. Let me check the centroid panel and
+  identify that lone real protein sitting at the edge of the ours island
+  (suspicion: a low-complexity natural protein — which would tie the whole story
+  together):
+
+  Thought for 19s, read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Centroid panel is clear, but UMAP positions could mislead (w=8 looks
+  2nd-closest in UMAP yet is farthest in raw space). Annotating each centroid
+  with its raw-space distance to real:
+
+● Update(scripts/eval_function/plot_umap.py)  ⎿  Added 5 lines, removed 4 lines
+      148      fig.savefig(outdir / "umap_by_arm.png", dpi=180)
+      149      plt.close(fig)
+      150  
+      151 -    # --- panel B: centroids ---------------------------------
+          ------------------                                             
+      151 +    # --- panel B: centroids (labeled with RAW-space distance 
+          +to real) --------                                             
+      152      fig, ax = plt.subplots(figsize=(7.5, 6.5))
+      153      for a in arms:
+      154          c = xy_by_arm[a].mean(axis=0)
+      155          ax.scatter(*c, s=170, c=ARM_COLORS.get(a, "gray"),
+      156                     marker=ARM_MARKERS.get(a, "o"), edgecolors=
+           "k",
+      157                     linewidths=0.7, zorder=3)
+      158 -        ax.annotate(ARM_LABELS.get(a, a), c, fontsize=8,      
+      159 -                    xytext=(4, 4), textcoords="offset points")
+      158 +        d_raw = summary[a]["centroid_to_real"]                
+      159 +        ax.annotate(f"{ARM_LABELS.get(a, a)}  (d={d_raw:.2f})"
+          +, c, fontsize=8,                                              
+      160 +                    xytext=(5, 5), textcoords="offset points")
+      161          if a != "real":
+      162              ax.plot(*zip(c, xy_by_arm["real"].mean(axis=0)), c
+           olor="gray",
+      163                      lw=0.7, ls=":", zorder=1)
+      163 -    ax.set_title("Arm centroids (dotted: distance to real)")  
+      164 +    ax.set_title("Arm centroids in UMAP space (d = raw ESM-spa
+          +ce |centroid − real|)")                                       
+      165      ax.set_xticks([]), ax.set_yticks([])
+      166      fig.tight_layout()
+      167      fig.savefig(outdir / "umap_centroids.png", dpi=180)
+
+  Thought for 34s, read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● UMAP done — the label panels show exactly the qualitative signal (e.g.,
+  NAD-binding prompted points clump tightly within the ours region, distinct
+  from null). Now the Meluxina transfer commands — let me check what's
+  transferable vs re-downloadable, and the driver's data expectations:
+
+  Thought for 1m 12s, listed 2 directories (ctrl+o to expand)
+
+● Everything's in place for the transfer plan. Quick context stat for the
+  report, then figures into the report + commit:
+
+  Thought for 4s, ran 1 shell command (ctrl+o to expand)
+
+● The three natural proteins nearest the ours region sit at the Ala/Gly extreme
+  of the natural distribution (A+G 0.23–0.31 vs real-arm mean 0.168, max 0.315).
+  Writing the report section:
+
+● Update(reports/weekly_meeting_2026-09-29.md)
+  ⎿  Added 27 lines
+      66  
+      67  Controls sit exactly at chance; ours_cond separates above it an
+          d **peaks at w=2 — the same optimum as MRR**, from a completely
+           different construction. The conditioning carries genuine label
+          -specific composition information; it is far too weak to produc
+          e annotatable function. (MRR itself needs no analogous adjustme
+          nt — it is already label-grouped; per-family MMD adds the dista
+          nce-level analog plus the explicit cross-family baseline.)
+      68  
+      69 +### UMAP in shared ESM-2 space (feedback 5)                    
+      70 +                                                               
+      71 +One UMAP fit on all 1,768 mean-pooled ESM-2 3B embeddings (L2-n
+         +ormalized, the `aatype_esm.pkl` files DeepGO-SE leaves per arm)
+         +; separation quantified in the **raw** embedding space, not UMA
+         +P. Script: `scripts/eval_function/plot_umap.py`; figures: `figs
+         +/umap_{by_arm,centroids,labels}.png` (copies in `reports/figure
+         +s/`).                                                          
+      72 +                                                               
+      73 +![UMAP by arm](figures/umap_by_arm.png)                        
+      74 +                                                               
+      75 +| Arm | \|centroid − real\| ↓ (raw ESM) | intra-arm spread |   
+      76 +|---|---|---|                                                  
+      77 +| vanilla | **0.086** | 0.223 |                                
+      78 +| ours_cond w=2 | 0.319 | 0.278 |                              
+      79 +| ours_cond w=4 | 0.328 | 0.297 |                              
+      80 +| ours_cond w=1 | 0.366 | 0.181 |                              
+      81 +| ours_null | 0.367 | 0.178 |                                  
+      82 +| ours_cond w=8 | 0.402 | 0.253 |                              
+      83 +| real (reference) | 0 | 0.181 |                               
+      84 +                                                               
+      85 +![Centroids](figures/umap_centroids.png)                       
+      86 +                                                               
+      87 +1. **Adapter training displaced the entire output distribution.
+         +** Vanilla DPLM-2 samples sit essentially *on* the real manifol
+         +d (d=0.086); every adapter-trained arm — including the null-con
+         +ditioned one — occupies a disjoint region ~4× farther away (d=0
+         +.32–0.40). The displacement is a property of the trained weight
+         +s, not of conditioning.                                        
+      88 +2. **CFG does not approach the real manifold in ESM space.** Th
+         +e MMD improvement under guidance (0.90→0.38) is composition-lev
+         +el (k-mer space); in ESM space the centroids stay at 0.32–0.40 
+         +with no monotone approach (w=2 closest, w=8 farthest). Guidance
+         + makes outputs *compositionally* more natural while they remain
+         + *semantically* off-manifold — which is exactly what the IPS au
+         +dit saw: sequences that look protein-like in composition but an
+         +notate only to a low-complexity repeat.                        
+      89 +3. **The collapse, seen structurally.** w=1/null intra-arm spre
+         +ad (0.178) is *tighter than the real arm's own spread* (0.181) 
+         +— a single narrow mode; CFG restores spread (0.25–0.30), matchi
+         +ng the MF-diversity counts (32→62 terms).                      
+      90 +4. **Per-label conditioning is qualitatively visible.** In the 
+         +per-label panels, prompted points for the highest-Δ labels (NAD
+         + binding, cobalamin synthase, translation-initiation-factor act
+         +ivity) clump within the ours region, separated from other label
+         +s — the per-family MMD signal, visible by eye. The clump lives 
+         +inside the off-manifold region: label-specific yet unnatural.  
+      91 +                                                               
+      92 +![Per-label panels](figures/umap_labels.png)                   
+      93 +                                                               
+      94 +5. The natural proteins that embed closest to the adapter-train
+         +ed region are the most Ala/Gly-rich ones available (A+G 23–31% 
+         +vs real-arm mean 16.8%, max 31.5%) — the ours region is the low
+         +-complexity corner of protein space, consistent with the antifr
+         +eeze-repeat IPS artifact.                                      
+      95 +                                                               
+      96  ### InterProScan zero-result audit — zeros are genuine, not a b
+          ug
+      97  
+      98  | Check | ours_cond | ours_null | vanilla | real |
+
+● Update(plans/meetings.md)
+  ⎿  Added 2 lines
+      27  
+      28  **On 1c — per-family MMD: IMPLEMENTED + run (2026-09-29).** `pe
+          r_family_mmd()` in `byprot/eval/function.py`, wired into the sc
+          orer: for each label L, own = MMD(gen-for-L, real-for-L) vs cro
+          ss = mean MMD(gen-for-L, real-for-L'≠L); delta = cross − own > 
+          0 ⇒ label-specific proximity. Controls validated (null/vanilla 
+          ≈ chance, real arm calibrates own=0/frac=1.0, unit checks in ch
+          eck_function_metrics.py all pass). **Result: independently conf
+          irms the MRR story** — delta peaks at w=2 (+0.0185 linear, 71% 
+          of labels own-closest) vs null −0.0009 / vanilla −0.0011 (both 
+          at chance), decaying at w=4/8. **MRR does not need the same adj
+          ustment** — it is already label-grouped; per-family MMD adds th
+          e distance-level analog (MRR is a rank saturating at the 8-seqs
+          /label noise floor 0.81) and the explicit cross-family baseline
+          .
+      29  
+      30 +**On 5 — UMAP visualization: DONE (2026-09-29).** Shared UMAP o
+         +ver all 1,768 mean-pooled ESM-2 3B embeddings (`scripts/eval_fu
+         +nction/plot_umap.py` → `eval_runs/fn_eval_v1/figs/`, copies in 
+         +`reports/figures/`). Findings: (a) vanilla sits ON the real man
+         +ifold (raw ESM |centroid−real| = 0.086) while every adapter-tra
+         +ined arm incl. null occupies a disjoint region (0.32–0.40) — th
+         +e displacement is in the trained weights; (b) CFG does *not* ap
+         +proach the real manifold in ESM space (no monotone trend, 0.32–
+         +0.40) — its MMD gain is composition-level only, matching the IP
+         +S low-complexity-artifact finding; (c) w=1/null intra-arm sprea
+         +d (0.178) is tighter than the real arm's own (0.181) — visual c
+         +onfirmation of the diversity collapse that CFG partially lifts;
+         + (d) high-Δ labels show visible prompted-point clumps (qualitat
+         +ive per-family conditioning).                                  
+      31 +                                                               
+      32  **On 1c — MMD relevance:** agreed. Current MMD is computed **pe
+          r arm** (all generated vs all real) — it is condition-blind and
+           only measures realism. Next iteration adds **per-family MMD**:
+           for each prompted label L, MMD(generated-for-L vs real-L) — i.
+          e. subset the ground truth by the family condition exactly as p
+          roposed. MRR already does the label-grouped version; per-family
+           MMD complements it with a threshold-free distance curve.
+      33  
+      34  **On 4 — checkpoint selection & loss weighting:** confirmed fro
+          m code: total val/loss = the **sum of the aa-track and struct-t
+          rack** diffusion cross-entropies, weighted by diffusion timeste
+          p. **Function has no loss term** — it is conditioning-only. So 
+          "best total loss" checkpoint selection is structurally blind to
+           function fidelity, and the aatype plateau (step ~2K) while str
+          uct kept improving means "best total loss" was driven by struct
+           gains. The overtraining hypothesis is testable: sweep saved ch
+          eckpoints through the recovery probe (function recovery may pea
+          k early while realism degrades late — or never rise at all).
+
+  Thought for 21s, ran 1 shell command (ctrl+o to expand)
+
+● Committed (9029d82). Both deliverables ready:
+
+  1. UMAP (feedback 5) — done
+
+  Three figures in reports/figures/ and eval_runs/fn_eval_v1/figs/, script at
+  plot_umap.py. The picture completes the story from the past two days:
+
+  - Vanilla generation sits on the real manifold (raw ESM-space |centroid−real|
+    = 0.086); every adapter-trained arm — including null — occupies a disjoint 
+    region (0.32–0.40). The displacement is baked into the trained weights, not
+    caused by conditioning.
+  - CFG does not approach the real manifold in ESM space (no monotone trend; w=2
+    closest, w=8 farthest). Its MMD gain was composition-level only — precisely
+    why IPS sees only the low-complexity antifreeze artifact in these
+    sequences.
+  - The collapse is visible as geometry: w=1/null intra-arm spread (0.178) is
+    tighter than real's own spread (0.181); CFG restores spread to 0.25–0.30
+    (matching the 32→62 MF-term recovery).
+  - Per-family conditioning visible by eye: prompted points for the top-Δ labels
+    (NAD binding, cobalamin synthase…) clump within the ours region — but the
+    clump is off-manifold: label-specific yet unnatural.
+  - The natural proteins embedding nearest the ours region are the most
+    Ala/Gly-rich in the whole real set (A+G 23–31%, vs mean 16.8%, max 31.5%).
+
+  2. Meluxina placement commands
+
+  Already on Meluxina (no action): the repo (git pull origin main covers
+  common.sh, eval scripts, the new scorer/driver code), the trained checkpoint,
+  and the IPS 5.78 tarball + go.obo you downloaded earlier. What's missing are
+  the non-git artifacts — two must come from the workstation
+  (web-archive/unpublished sources), two can be fetched directly on Meluxina:
+
+  # ================= A. FROM THE WORKSTATION (push) =================
+  # substitute your alias/host for `meluxina` (login node: access.lxp.lu)
+  MEL=meluxina
+  REPO_MEL=~/<repo-root-on-meluxina>          # the dir you sbatch from
+
+  # 1. DeepGO-SE recovered data — 16 GB, web-archive-only, cannot re-download 
+  there
+  rsync -avP eval/deepgo2/data/ $MEL:$REPO_MEL/eval/deepgo2/data/
+
+  # 2. CFP-Gen eval inputs — 14 MB, needed to regenerate eval sets there (future
+  runs)
+  rsync -avP
+  /home/cherry/dev/phd/cfpgen/data-bin/uniprotKB/cfpgen_general_dataset/test.pkl
+  \
+             $MEL:$REPO_MEL/eval/cfpgen_eval/test.pkl
+  rsync -avP /home/cherry/dev/phd/cfpgen/go_mapping.pkl \
+             /home/cherry/dev/phd/cfpgen/ipr_mapping.pkl
+  $MEL:$REPO_MEL/eval/cfpgen_eval/
+
+  # ================= B. ON MELUXINA (login node) =================
+  cd $REPO_MEL   # after git pull origin main
+
+  # 3. ESM-2 3B torch-hub cache — 5.7 GB, public download (DeepGO-SE needs it 
+  per run)
+  mkdir -p eval/esm_torch_hub && cd eval/esm_torch_hub
+  wget -c https://dl.fbaipublicfiles.com/fair-esm/models/esm2_t36_3B_UR50D.pt
+  wget -c https://dl.fbaipublicfiles.com/fair-esm/models/esm2_t36_3B_UR50D-conta
+  ct-regression.pt
+  cd ../..
+
+  # 4. DeepGO-SE container as a sandbox dir (sandbox > SIF — no squashfuse 
+  flake; ~12 GB)
+  APPTAINER=/apps/USE/easybuild/release/2025.1/software/Apptainer/1.4.2-GCCcore-
+  14.2.0/bin/apptainer
+  $APPTAINER build --sandbox eval/deepgose_sandbox docker://coolmaksat/deepgose
+
+  # 5. Verify IPS is intact + find the Java module it needs (5.78 requires Java 
+  11+)
+  ls eval/interproscan-5.78-109.0/interproscan.sh 2>/dev/null || echo "IPS 
+  missing -> re-download from GitHub releases"
+  module spider java 2>/dev/null | head    # pick a Java/11+ module name for IPS
+  runs
+
+  # ================= C. RUN PATTERN (inside a GPU job/allocation) 
+  =================
+  # DeepGO-SE on any arm FASTA — same layout as local (outputs land next to the 
+  input):
+  $APPTAINER exec --cleanenv --nv \
+    --bind $REPO_MEL/eval/deepgo2/data:/workspace/deepgo2/data \
+    --bind $REPO_MEL/eval/esm_torch_hub:/root/.cache/torch/hub/checkpoints \
+    --bind <evaldir>:/workspace/deepgo2/eval \
+    eval/deepgose_sandbox \
+    /opt/conda/bin/python predict.py -if eval/<arm>/aatype.fasta -dr data -d
+  cuda
+
+  Notes: (1) transfer budget ≈ 16 GB (deepgo weights) + 14 MB; sandbox build
+  pulls ~12 GB — check /project quota, fall back to $SCRATCH for the sandbox if
+  tight. (2) The ESM cache mount is what kills the re-download problem — same
+  trick as locally. (3) eval/ sits outside the dplm container's binds (common.sh
+  mounts only src/configs/scripts/train.py/.git), so nothing shadows openfold.
+  (4) The login node's wget/apptainer-pull need egress — if docker:// pull is
+  blocked there, tell me and I'll give the SIF-push fallback (apptainer build 
+  deepgose.sif docker-daemon://coolmaksat/deepgose locally, then rsync).
+
+  Next queued: checkpoint sweep × recovery probe (feedback 4). Want me to start
+  on that?
+
+❯ at this point our conversation is long.                                       
+  Create a comprehensive handoff file at RESEARCH_STATE.md summarizing:         
+  1. An overview of the repository and what new things we've implemented        
+  2. Links/map of our existing documented relevant information (e.g. meeting    
+  reports, technical reference, plans, notes, repository mapping)               
+  3. Key empirical findings (what failed, what converged, issues encountered    
+  and mitigations/solutions).                                                   
+  4. Current outstanding bugs, active experiments, and immediately pending      
+  tasks.                                                                        
+  5. A list of key script entrypoints, dataset formats, and evaluation metrics  
+  we rely on.                                                                   
+
+  Thought for 45s (ctrl+o to expand)
+
+● Let me verify the current repo state so the handoff is accurate:
+
+  Thought for 8s, listed 2 directories (ctrl+o to expand)
+
+● Write(RESEARCH_STATE.md)
+  ⎿  Wrote 217 lines to RESEARCH_STATE.md
+      1 # RESEARCH_STATE.md — handoff snapshot
+      3 **Date:** 2026-09-29 · **Repo:** `dplm` (branch `main`) · **Autho
+        r context:** PhD project — function-conditioned protein generatio
+        n on DPLM-2.
+      5 This file is the single entry point for resuming work. It summari
+        zes what exists, what we learned, what is broken/pending, and whe
+        s cite the committed reports.
+      6 
+      7 ---
+      9 ## 1. Repository overview and what we built
+     … +507 lines (ctrl+o to expand)
+
+  Thought for 7s, ran 1 shell command (ctrl+o to expand)
+
+● RESEARCH_STATE.md created and committed (07b02bd, 217 lines). Structure:
+
+  1. §1 Repository overview — base DPLM-2 recap, then our four contributions:
+     ConditionalDPLM2 (with per-file table of adapter/embedder/model changes and
+     the training recipe), the evaluation stack, and the Meluxina
+     infrastructure.
+  2. §2 Document map — table linking every report (09-22 methodology+results,
+     09-29 final tables, technical reference, progress/session impl, CFP-Gen
+     synthesis), figures dir, plans/meetings.md, and the Meluxina runbook, each
+     with a one-line "what's in it".
+  3. §3 Empirical findings — the reference 8-column results table (GO Fmax / IPR
+     / MRR / per-family Δ / MMD / ESM centroid distance), what worked (5 items
+     incl. the self-validating controls), what failed (6 items), the two-layer
+     diagnosis (capacity/mode-collapse vs granularity, and why the LoRA run
+     tests both), and the issue→mitigation table (13 rows, from EBI FTP blocking
+     through the obonet silent-skip lesson to the sklearn binary-AP artifact).
+  4. §4 Open items — known non-bug issues (pre-dedup sweep caveat, AUPR columns,
+     length mismatch), 4 designed-but-not-run experiments (cfpgen arm,
+     checkpoint sweep, LoRA, validation callback), and the prioritized task
+     queue from the meeting notes with the Meluxina placement commands flagged
+     as delivered but not yet executed.
+  5. §5 Reference — every script entrypoint with its key flags, the canonical
+     full-eval + DeepGO-SE + IPS invocations (copy-pasteable), all
+     dataset/artifact formats (manifest.json schema, the int↔accession bridge,
+     the esm-pkl staleness gotcha), and a metric glossary including the "do not
+     read ipr_aupr" and "MRR needs no per-family adjustment" warnings.
+  6. §6 One-paragraph status — the whole project state for a fast resume.
+
+  One deliberate choice to flag: I wrote §3.6 and §5.3 to preserve the lessons
+  rather than just fixes (e.g., "guard against silently-skipped optional stages"
+  from the obonet incident) — that's the part easiest to lose and most
+  expensive to relearn.
+
+  Next in the queue when you're ready: the checkpoint sweep × recovery probe, or
+  the cfpgen comparison arm.

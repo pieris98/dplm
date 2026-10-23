@@ -170,3 +170,13 @@ generation-results/
 data-bin/scaffolding-pdbs/*.pdb
 temp.ipynb
 # run/
+
+# Experiment / run outputs (docker smoke tests, evals, workflow engines)
+.nextflow/
+work/
+docker-smoke-output/
+eval/
+eval_runs/
+
+# Paper drafts (tex, figures, pdfs) — not tracked for now
+papers/
