@@ -1,21 +1,20 @@
-# Karolina multi-node DDP trainer config (one task per GPU, externally launched).
+# Karolina multi-node DDP trainer config (torchrun-launched, one task per node).
 #
-# The srun step in scripts/karolina/cond_dplm2_train_multinode.sbatch launches
-# one train.py task per GPU; train_rank.sh forwards the torch env-init vars
-# (RANK/LOCAL_RANK/WORLD_SIZE/MASTER_ADDR/MASTER_PORT) into the container.
-# A structured TorchElasticEnvironment consumes exactly those vars and sets
-# creates_processes_externally=True, so Lightning joins the env:// world
-# instead of treating each task as its own single-process world (the string
-# 'ddp_find_unused_parameters_true' cannot carry a custom cluster environment
-# — smoke jobs 5259770/5259788/5259770: 16 independent world-1 trainings,
-# probe firing on two "rank 0"s, both nodes writing the same ckpt file).
-# num_nodes/devices stay 1 per task: the env world (16) is authoritative.
+# Launch chain: sbatch -> srun (1 task/node, all 8 GPUs in the task cgroup) ->
+# train_rank.sh -> torchrun --nnodes=2 --nproc_per_node=8 (inside the sandbox).
+# torchrun sets every worker's RANK/LOCAL_RANK/WORLD_SIZE/TORCHELASTIC_* env,
+# and Lightning auto-detects TorchElasticEnvironment
+# (torch.distributed.is_torchelastic_launched()) — the explicit structured
+# strategy below pins that deterministically. num_nodes(2) x devices(8) = 16
+# == WORLD_SIZE, satisfying SubprocessScriptLauncher.validate_settings.
+# train_rank.sh passes trainer.num_nodes/devices explicitly (physical truth);
+# the 1/1 defaults here are only for single-process fallbacks.
 defaults:
   - default.yaml
 
 accelerator: "cuda"
-devices: 1
-num_nodes: 1
+devices: 8
+num_nodes: 2
 strategy:
   _target_: pytorch_lightning.strategies.DDPStrategy
   find_unused_parameters: true # = the old 'ddp_find_unused_parameters_true'

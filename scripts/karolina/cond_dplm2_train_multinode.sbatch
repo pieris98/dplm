@@ -52,6 +52,7 @@ echo "[ddp] job=${SLURM_JOB_ID:-manual} nodes=${SLURM_NNODES} ranks=$((SLURM_NNO
 echo "[ddp] nodelist=${SLURM_JOB_NODELIST:-?}  DPLM_BASE=${DPLM_BASE}"
 
 export WANDB_MODE="${WANDB_MODE:-offline}"
+export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"   # drop to OFF once the smoke is green
 
 # effective-batch parity: 16K tokens/step regardless of rank count
 MT=$((16000 / (SLURM_NNODES * 8)))
@@ -104,11 +105,15 @@ resubmit() {
 }
 trap 'resubmit || true; exit 0' TERM
 
-# --- launch one containerized rank per GPU ------------------------------------
+# --- launch one containerized task per NODE; torchrun spawns 8 workers -------
 JOB_START_EPOCH="$(date +%s)"   # for "did THIS job produce a ckpt" checks
-# The ALLOCATION used the canonical --gpus form (no per-task gres binding), so
-# the srun step binds 1 GPU per task explicitly. CPU/memory shares come from
-# IT4I's per-part defaults (16 cores/8 parts) — do not pin them.
+# The old per-task pattern (--ntasks-per-node=8 --gpus-per-task=1) put 7 of 8
+# /dev/nvidia* files outside each task's cgroup, and NCCL's NVML topology
+# probe died on them ("nvmlDeviceGetHandleByPciBusId: Not Found") on every
+# rank of both nodes. One task per node holds ALL 8 GPUs in its cgroup;
+# torchrun (inside the container) spawns the 8 workers and sets their
+# RANK/LOCAL_RANK/WORLD_SIZE itself. TorchElasticEnvironment then
+# auto-detects the elastic launch (is_torchelastic_launched()).
 #
 # Memory-env guard: submitting from INSIDE an interactive allocation (evalsh/
 # check use --mem=48G; alloc uses per-GPU defaults) leaks SLURM_MEM_PER_* into
@@ -119,7 +124,7 @@ JOB_START_EPOCH="$(date +%s)"   # for "did THIS job produce a ckpt" checks
 unset SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU SLURM_MEM_PER_NODE SLURM_CPUS_PER_TASK
 chmod +x "${ROOT_DIR}/scripts/karolina/train_rank.sh"
 set +e
-srun --ntasks-per-node=8 --gpus-per-task=1 \
+srun --ntasks-per-node=1 --gpus-per-task=8 \
      bash "${ROOT_DIR}/scripts/karolina/train_rank.sh"
 TRAIN_RC=$?
 set -e
