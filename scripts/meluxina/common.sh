@@ -197,6 +197,7 @@ CONTAINER_ARGS=(
 # 5259788 follow-up). With only the torch vars, Lightning falls back to
 # _DefaultEnvironment and joins the env:// world of WORLD_SIZE directly.
 for _v in RANK LOCAL_RANK WORLD_SIZE MASTER_ADDR MASTER_PORT \
+          CUDA_VISIBLE_DEVICES \
           NCCL_DEBUG NCCL_DEBUG_SUBSYS; do
   if [[ -n "${!_v:-}" ]]; then CONTAINER_ARGS+=(--env "$_v=${!_v}"); fi
 done

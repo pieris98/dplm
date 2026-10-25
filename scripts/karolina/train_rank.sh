@@ -27,6 +27,12 @@ export WORLD_SIZE="${SLURM_NTASKS:-1}"
 # Not Found — CUDA/NVML device-view mismatch under CUDA_VISIBLE_DEVICES
 # masking in apptainer, smoke 2026-10-25). INFO shows the failing bus id.
 export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+# ROOT CAUSE (same smoke): --cleanenv strips CUDA_VISIBLE_DEVICES and it was
+# never forwarded — CUDA inside the task enumerated all 8 node GPUs while the
+# SLURM cgroup only permits the assigned one, so NCCL's topology probe hit
+# 'Not Found' on every blocked peer. Forwarding the task's mask makes CUDA
+# see exactly the assigned GPU; NVML then resolves its single bus id.
+echo "[rank] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
 
 # keep stderr visible: a silently-failed source cost us a debug cycle
 source scripts/meluxina/common.sh
