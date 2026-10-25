@@ -41,7 +41,7 @@ run_in_container "$DPLM_PY" -m torch.distributed.run \
   --nproc_per_node="$NPROC_PER_NODE" \
   --master_addr="$MASTER_ADDR" \
   --master_port="$MASTER_PORT" \
-  "$DPLM_PY" train.py \
+  train.py \
   experiment=dplm2/cond_dplm2_650m_cfpgen_meluxina \
   trainer=karolina_ddp_bf16 \
   trainer.num_nodes="$NNODES" \
