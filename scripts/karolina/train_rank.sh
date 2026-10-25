@@ -22,6 +22,11 @@ export RANK="${SLURM_PROCID:-0}"
 # repro, PL ddp.py root_device).
 export LOCAL_RANK=0
 export WORLD_SIZE="${SLURM_NTASKS:-1}"
+# NCCL debug for the containerized multi-rank path: the first true 16-rank
+# collectives died in NCCL topology init (nvmlDeviceGetHandleByPciBusId:
+# Not Found — CUDA/NVML device-view mismatch under CUDA_VISIBLE_DEVICES
+# masking in apptainer, smoke 2026-10-25). INFO shows the failing bus id.
+export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
 
 # keep stderr visible: a silently-failed source cost us a debug cycle
 source scripts/meluxina/common.sh
