@@ -30,13 +30,17 @@ echo "[rank $RANK/$WORLD_SIZE] node=$(hostname -s) local=$LOCAL_RANK cuda=$CUDA_
 # NOTE: run_in_container is a bash FUNCTION from common.sh (retry-wrapped
 # apptainer exec) — never `exec` it (exec only launches binaries → exit 127;
 # bit us on the first smoke, job 5259738).
-# num_nodes/devices stay 1: the container deliberately does NOT see SLURM_*
-# (Lightning's SLURMEnvironment would demand ntasks-per-node == devices),
-# so Lightning joins the env:// world of WORLD_SIZE via _DefaultEnvironment —
-# each of these processes IS one device of that world.
+# num_nodes = WORLD_SIZE (16), devices = 1: Lightning's SubprocessScriptLauncher
+# validates num_nodes * devices == WORLD_SIZE even when
+# creates_processes_externally=True (it then just runs our already-launched
+# process) — so num_nodes counts rank-slots here, not physical nodes.
+# The container deliberately does NOT see SLURM_* (SLURMEnvironment would
+# demand ntasks-per-node == devices and try to manage the world itself).
 run_in_container "$DPLM_PY" train.py \
   experiment=dplm2/cond_dplm2_650m_cfpgen_meluxina \
   trainer=karolina_ddp_bf16 \
+  trainer.num_nodes="${WORLD_SIZE}" \
+  trainer.devices=1 \
   datamodule.max_tokens="${MT}" \
   trainer.max_steps="${MAX_STEPS}" \
   logger=wandb logger.wandb.offline=True \
