@@ -8,9 +8,12 @@
 set -Eeuo pipefail
 ROOT_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
 cd "${ROOT_DIR}"
-# keep stderr visible: a silently-failed source cost us a debug cycle
-source scripts/meluxina/common.sh
 
+# Export the torch env-init vars BEFORE sourcing common.sh: CONTAINER_ARGS
+# (incl. the guarded --env forwarding) is built at source time — exporting
+# after left the container without RANK/LOCAL_RANK/WORLD_SIZE and
+# TorchElasticEnvironment.local_rank() died on KeyError('LOCAL_RANK')
+# (smoke job 5259927).
 export RANK="${SLURM_PROCID:-0}"
 # LOCAL_RANK stays 0 for EVERY task: srun --gpus-per-task=1 gives each task a
 # single visible GPU (CUDA_VISIBLE_DEVICES), so within the process the local
@@ -19,6 +22,9 @@ export RANK="${SLURM_PROCID:-0}"
 # repro, PL ddp.py root_device).
 export LOCAL_RANK=0
 export WORLD_SIZE="${SLURM_NTASKS:-1}"
+
+# keep stderr visible: a silently-failed source cost us a debug cycle
+source scripts/meluxina/common.sh
 
 echo "[rank $RANK/$WORLD_SIZE] node=$(hostname -s) local=$LOCAL_RANK cuda=$CUDA_VISIBLE_DEVICES"
 # NOTE: run_in_container is a bash FUNCTION from common.sh (retry-wrapped

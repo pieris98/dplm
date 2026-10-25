@@ -105,6 +105,7 @@ resubmit() {
 trap 'resubmit || true; exit 0' TERM
 
 # --- launch one containerized rank per GPU ------------------------------------
+JOB_START_EPOCH="$(date +%s)"   # for "did THIS job produce a ckpt" checks
 # The ALLOCATION used the canonical --gpus form (no per-task gres binding), so
 # the srun step binds 1 GPU per task explicitly. CPU/memory shares come from
 # IT4I's per-part defaults (16 cores/8 parts) — do not pin them.
@@ -129,11 +130,22 @@ STEPS_DONE=0
 if LATEST_CKPT="$(find_latest_ckpt)"; then
   STEPS_DONE="$(echo "$LATEST_CKPT" | grep -oE 'step[=_][0-9]+' | grep -oE '[0-9]+' | tail -1)"; STEPS_DONE="${STEPS_DONE:-0}"
 fi
-if (( STEPS_DONE + 1 >= MAX_STEPS )); then
+# DONE requires srun success: a failed run whose stale ckpt *filename* happens
+# to read >= MAX_STEPS must not be declared finished (smoke 5259927 printed
+# DONE off the previous smoke's step_19.0 while itself failing instantly).
+if [[ "${TRAIN_RC}" -eq 0 ]] && (( STEPS_DONE + 1 >= MAX_STEPS )); then
   # +1: PL global_step is 0-indexed in ckpt filenames — max_steps=20 lands as
   # step_19.0-loss_*.ckpt, which read 19 < 20 and chained forever (smoke 5259770).
   echo "[ddp] DONE — reached $((STEPS_DONE + 1))/${MAX_STEPS} steps: ${LATEST_CKPT}"
   exit 0
+fi
+# Chain only if THIS job produced a checkpoint (i.e. made real progress). An
+# instant failure produces no ckpt and must not burn MAX_RESUBMITS doomed jobs
+# (smoke 5259770 chained a failing job on rc=1 alone).
+NEW_CKPT="$(find "$DPLM_LOGS" -path "*${RUN_GLOB}*" -name '*.ckpt' -newermt "@${JOB_START_EPOCH}" -not -name '*states*' 2>/dev/null | head -1)"
+if [[ -z "${NEW_CKPT}" && "${TRAIN_RC}" -ne 0 ]]; then
+  echo "[ddp] rc=${TRAIN_RC} with no new checkpoint this job — NOT chaining (fix the failure and resubmit manually)"
+  exit 1
 fi
 echo "[ddp] at ${STEPS_DONE}/${MAX_STEPS} steps (rc=${TRAIN_RC}) — chaining next chunk"
 resubmit || true
