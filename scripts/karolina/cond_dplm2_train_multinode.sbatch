@@ -20,6 +20,9 @@
 # --gpus 16 ("nodes must equal gpus/8"). Use e.g.:
 #   sbatch -N3 --gpus 24 …   (MT auto: 16000/24 = 666/rank)
 #   sbatch -N4 --gpus 32 …   (MT auto: 16000/32 = 500/rank)
+#   sbatch -N8 --gpus 64 …   (MT auto: 16000/64 = 250/rank) — check it/s early:
+#   64-rank scaling with the IPoIB socket fallback may underdeliver; if the
+#   progress bar shows < ~1.0 it/s, fall back to -N4 (resume costs ≤2000 steps).
 #
 # Batch-size parity with the Meluxina baseline (16K tokens/optimizer step):
 # the script sets per-rank max_tokens = 16000 / total_ranks automatically
