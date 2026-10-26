@@ -86,7 +86,10 @@ if [[ "${FRESH:-0}" == "1" ]]; then
   echo "[ddp] FRESH=1 — ignoring any existing checkpoints (fresh campaign start)"
 elif LATEST_CKPT="$(find_latest_ckpt)"; then
   echo "[ddp] resuming from: ${LATEST_CKPT}"
-  export RESUME_ARGS="++trainer.resume_from_checkpoint=${LATEST_CKPT}"
+  # resume flows through train.ckpt_path (training_pipeline resolves it and
+  # passes it to trainer.fit) — NOT trainer.resume_from_checkpoint, which PL
+  # 2.2 removed from Trainer.__init__ (TypeError; resume test, job after 5267874).
+  export RESUME_ARGS="++train.ckpt_path=${LATEST_CKPT}"
 else
   export RESUME_ARGS=""
   echo "[ddp] no checkpoint — fresh start"
