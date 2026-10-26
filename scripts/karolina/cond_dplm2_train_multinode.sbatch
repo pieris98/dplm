@@ -52,7 +52,7 @@ echo "[ddp] job=${SLURM_JOB_ID:-manual} nodes=${SLURM_NNODES} ranks=$((SLURM_NNO
 echo "[ddp] nodelist=${SLURM_JOB_NODELIST:-?}  DPLM_BASE=${DPLM_BASE}"
 
 export WANDB_MODE="${WANDB_MODE:-offline}"
-export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"   # drop to OFF once the smoke is green
+export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"   # INFO floods logs; set NCCL_DEBUG=INFO to re-enable
 
 # effective-batch parity: 16K tokens/step regardless of rank count
 MT=$((16000 / (SLURM_NNODES * 8)))
