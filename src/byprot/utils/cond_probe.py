@@ -295,17 +295,35 @@ class ConditioningProbeCallback(pl.Callback):
                     # bug, caught at step 14K of the 2026-10-26 campaign —
                     # the user flagged the flat line).
                     torch.manual_seed(self.probe_seed)
-                    loss_real, _ = pl_module.step(batch_real)
+                    loss_real, log_r = pl_module.step(batch_real)
                     model._encode_conditions = (
                         lambda conditions, force_unconditional=False,
                                _orig=orig_encode:
                         _orig(conditions, force_unconditional=True)
                     )
                     torch.manual_seed(self.probe_seed)
-                    loss_null, _ = pl_module.step(dict(batch))
+                    loss_null, log_n = pl_module.step(dict(batch))
             finally:
                 model._encode_conditions = orig_encode
             deltas.append((loss_real - loss_null).item())
+
+            # per-track deltas: conditions are function labels — the aatype
+            # track is where conditioning should show up first; struct adds
+            # most of the loss mass and can drown the signal in the total.
+            def _track_val(log, track):
+                for k, v in log.items():
+                    if k.startswith(track) and "nll" in k and "fullseq" not in k:
+                        return float(v)
+                for k, v in log.items():
+                    if k.startswith(track) and "loss" in k and "index" not in k:
+                        return float(v)
+                return None
+
+            for track in ("aatype", "struct"):
+                vr = _track_val(log_r, track)
+                vn = _track_val(log_n, track)
+                if vr is not None and vn is not None:
+                    pl_module.log(f"probe/loss_delta_{track}", vr - vn)
         if deltas:
             pl_module.log("probe/loss_delta", float(np.mean(deltas)))
             print(f"[cond_probe] step {trainer.global_step}: "

@@ -165,15 +165,25 @@ def main():
         total_pos += n_pos
 
         # 1. seeded loss delta (patch wraps ONLY the null pass)
-        d_losses = []
+        d_losses = {"total": [], "aatype": [], "struct": []}
         orig = model._encode_conditions
+
+        def _track_val(log, track):
+            for k, v in log.items():
+                if k.startswith(track) and "nll" in k and "fullseq" not in k:
+                    return float(v)
+            for k, v in log.items():
+                if k.startswith(track) and "loss" in k and "index" not in k:
+                    return float(v)
+            return None
+
         for s in range(args.seeds):
             torch.manual_seed(7000 + b * 100 + s)
             with torch.inference_mode():
                 logits_r, targets, masks, w = model.compute_loss(
                     {k: batch[k] for k in ("struct_tokens", "aatype_tokens")},
                     weighting="linear", conditions=annotations)
-                loss_r, _ = criterion(logits_r, targets, masks, w)
+                loss_r, log_r = criterion(logits_r, targets, masks, w)
                 model._encode_conditions = (
                     lambda c, force_unconditional=False, _o=orig:
                     _o(c, force_unconditional=True))
@@ -183,12 +193,20 @@ def main():
                         weighting="linear", conditions=annotations)
                 finally:
                     model._encode_conditions = orig
-                loss_n, _ = criterion(logits_n, targets, masks, w)
-            d_losses.append((loss_r - loss_n).item())
-        all_deltas += d_losses
+                loss_n, log_n = criterion(logits_n, targets, masks, w)
+            d_losses["total"].append((loss_r - loss_n).item())
+            for track in ("aatype", "struct"):
+                vr, vn = _track_val(log_r, track), _track_val(log_n, track)
+                if vr is not None and vn is not None:
+                    d_losses[track].append(vr - vn)
+        all_deltas += d_losses["total"]
 
-        print(f"[batch {b}] loss delta (real-null): mean={statistics.mean(d_losses):+.5f} "
-              f"range=[{min(d_losses):+.5f}, {max(d_losses):+.5f}]")
+        print(f"[batch {b}] loss delta (real-null): total mean={statistics.mean(d_losses['total']):+.5f} "
+              f"range=[{min(d_losses['total']):+.5f}, {max(d_losses['total']):+.5f}]")
+        for track in ("aatype", "struct"):
+            if d_losses[track]:
+                print(f"           {track:6s} delta mean={statistics.mean(d_losses[track]):+.5f} "
+                      f"range=[{min(d_losses[track]):+.5f}, {max(d_losses[track]):+.5f}]")
         print(f"           logit |Δ| mean={statistics.mean(l_means):.5f} "
               f"max={max(l_maxs):.4f} | argmax flips={flips}/{n_pos}")
 
