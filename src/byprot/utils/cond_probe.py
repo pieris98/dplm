@@ -269,6 +269,7 @@ class ConditioningProbeCallback(pl.Callback):
         batches, self._val_batch_cache = self._val_batch_cache, []
         model = pl_module.model
         deltas = []
+        track_means = {}
         model.eval()
         for batch in batches:
             if batch.get("annotations") is None:
@@ -324,11 +325,15 @@ class ConditioningProbeCallback(pl.Callback):
                 vn = _track_val(log_n, track)
                 if vr is not None and vn is not None:
                     pl_module.log(f"probe/loss_delta_{track}", vr - vn)
+                    track_means.setdefault(track, []).append(vr - vn)
         if deltas:
             pl_module.log("probe/loss_delta", float(np.mean(deltas)))
             print(f"[cond_probe] step {trainer.global_step}: "
                   f"loss_delta={np.mean(deltas):.4g} "
                   f"(per-batch {[f'{d:.4g}' for d in deltas]})")
+            for track, vals in track_means.items():
+                print(f"[cond_probe]   {track} delta: {np.mean(vals):.4g} "
+                      f"(per-batch {[f'{d:.4g}' for d in vals]})")
 
     # ------------------------------------------------------------------
     # probe
