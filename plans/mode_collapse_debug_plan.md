@@ -305,21 +305,39 @@ forensic toolkit runs as designed.
   config, wired into `scripts/karolina/` before launch.
 - Figures per P2.4.
 
+## Post-launch queue (2026-10-26 — allocation validity ends 2026-10-27)
+
+The fixed campaign launched under a hard allocation cap: ~37 h of wall remain,
+so the run lands around **step ~75–80K** (0.65 it/s + ~90 s validation per 500
+steps). The periodic checkpoint series (every 2,000) is the deliverable;
+chaining ends when the allocation does. The eval stack and all analysis move to
+the **local workstation** with checkpoints synced from Karolina.
+
+| # | Item | Where | Status |
+|---|---|---|---|
+| Q1 | Monitor the 100K early trajectory — `probe/loss_delta` liftoff from 0, `a_frac` < 0.12, `adapter_w` growth; manual early-failure decision at step 10–20K (the plan's pre-registered rule) | Karolina logs | **in flight** |
+| Q2 | P0.7 scorer regression re-run on committed `fn_eval_v1` outputs (validates the eval stack before it becomes the critical path) | local | pending |
+| Q3 | Checkpoint sync Karolina → local (final + best + periodic spaced ~10–20K apart) | rsync | pending (at run end) |
+| Q4 | Local eval-stack dry run on a quarantined ckpt — validates generation → IPS → DeepGO-SE → scoring plumbing locally **before** real checkpoints arrive | local | pending |
+| Q5 | Per-layer learning analysis for the paper (Phase 1's paper-grade subset): per-layer adapter ‖W‖ / ‖Δh‖ profiles across the synced ckpt series → layer × step figure; condition-space (s) separability probe | local | pending |
+| Q6 | Tier-2 reframed: predictor-based function-recovery eval on periodic checkpoints (local eval stack) supersedes the old sbatch-on-probe-dirs wiring | local | reframed |
+| Q7 | Phase 2: refined anticipation table + remaining steering cells + Δcoverage/IPS + w-curve (if still relevant) | local; needs new ckpt + first eval numbers | gated on Q4/Q6 |
+| Q8 | Phase 3.5 ablation arms (adapter-input three-way, capacity, regularization) | gated on 100K outcome AND compute (new allocation, or local arms at reduced batch with internal comparability) | gated |
+| Q9 | libibverbs in sandbox | Karolina | **moot** (allocation ends; ~few % step time) |
+
+Closed: wandb offline (resolved); sync to Karolina (done); broken ckpts
+quarantined on Karolina (local copies remain in `logs/` with the README warning
+in scripts/debug/README.md); no EMA (verified).
+
+Launch-campaign record (2026-10-24/26): six smoke rounds surfaced and fixed, in
+order — SLURM memory-env leak, `exec`-on-function, torch env forwarding
+(→ torchrun architecture after Lightning's SLURM/TorchElastic semantics fought
+the per-task pattern), CUDA_VISIBLE_DEVICES stripping (NCCL NVML topology
+failure), torchrun entrypoint, MAX_STEPS export, resume key (`train.ckpt_path`).
+Green smoke + resume + post-flip all verified; metrics extracted from the
+offline `.wandb` logs and healthy (val/loss ≈ 0.75, a_frac 0.08–0.12, adapter_w
+growing, alarms 0).
+
 ## Open items
 
-- ~~wandb online vs offline on Karolina~~ — **resolved: offline** (runbook
-  default; `train_rank.sh` passes `logger.wandb.offline=True`; sync from local
-  with `wandb sync`).
-- Sync to Karolina: fix + callback + gauntlet pushed to `origin/main`
-  (`206bf38`/`94ea51d`/`9e2f4c2`); on the cluster: `git pull`, then the
-  pre-flight checklist (KAROLINA_RUNBOOK.md §2b — quarantine broken ckpts,
-  in-container gauntlet, smoke with probe override, resume test, then the
-  100K run with `FRESH=1`).
-- Decide disposition of the broken checkpoints
-  (`logs/cond_dplm2_650m_cfpgen/checkpoints/step_{79999,99999}`): keep for
-  forensics/teaching, but they must not back any paper claim; consider a README
-  marker in that directory.
-- P0.7 (scorer re-run on committed fn_eval_v1 outputs) — documented command,
-  not yet executed; cheap regression guard for the eval stack.
-- Trainer uses no EMA (verified — no EMA in trainer/callback configs), so
-  checkpoint = raw weights; one fewer suspect, recorded here to close it.
+- P0.7 — see Q2. Tier-2 — see Q6. Phase 2 — see Q7. Ablations — see Q8.

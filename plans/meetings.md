@@ -4,6 +4,16 @@ Running log of weekly progress meetings. Newest entry first.
 
 ---
 
+## 2026-10-24/26 — Karolina launch campaign: six smoke rounds → green; fixed campaign launched
+
+**What happened:** the smoke campaign for the fixed retrain ran across six rounds, each surfacing one real launch-path bug (all distinct, none silent): (1) SLURM memory-env leak — submitting from inside an interactive allocation leaked `SLURM_MEM_PER_*` and srun died on the mutually-exclusive trio; (2) `exec run_in_container` — a bash *function*, not a binary (exit 127); (3) `--cleanenv` stripped the DDP env, so every task formed its own 2-process world (16 independent trainings, probe on two "rank 0"s) — the fix passed through Lightning's SLURM validation, which then demanded `ntasks-per-node == devices`, forcing the **architecture switch to torchrun** (1 task per node, all 8 GPUs in one cgroup, torchrun spawns the 8 workers, `TorchElasticEnvironment` natively detected); (4) `CUDA_VISIBLE_DEVICES` stripped → NCCL's NVML topology probe hit `Not Found` on the cgroup-blocked peers (diagnosed interactively: container NVML sees only the allocated GPU); (5) torchrun entrypoint was the interpreter, not the script; (6) `MAX_STEPS` was non-exported (unbound at 100K submission) and the resume override targeted the removed PL-1.x `trainer.resume_from_checkpoint` key instead of `train.ckpt_path`.
+
+**Result:** green smoke + resume test + post-flip smoke all `rc=0`/`DONE`, single-writer checkpoints, one probe line per step, one wandb dir per run (rank-0-only logging — the multi-dir clutter was a symptom of the broken world-1 era). Wandb metrics extracted offline from the `.wandb` logs for three runs: val/loss ≈ 0.75, `a_frac` 0.086–0.119, `adapter_w` growing 0.0043→0.0094, alarms 0, `loss_delta` 0 at init as expected. Campaign flips landed and validated: `shard_batches_across_ranks: true` (effective batch 16K — the old "16K parity" was silently 4K/1K) and `find_unused_parameters` off (smoke-confirmed unused).
+
+**Constraint discovered:** the project allocation's validity ends 2026-10-27 → **~37 h of wall** for the fixed campaign, so it lands around **step ~75–80K** (not 100K); the every-2,000-step checkpoint series is the deliverable. Eval stack and analysis move to the **local workstation** with checkpoints synced from Karolina. Full queue (Q1–Q9) in [mode_collapse_debug_plan.md](mode_collapse_debug_plan.md) "Post-launch queue": monitoring (in flight) → scorer regression → ckpt sync → local eval dry run → per-layer paper figures → Phase 2 cells → ablation arms (gated). libibverbs mooted.
+
+---
+
 ## 2026-10-20 — Weekly progress meeting (PI feedback: debug the collapse; retrain gated)
 
 **Context at meeting time:** the presenter notes (below) were delivered; standing evidence = the 5-cell steering grid (cond p=0.3 clean / cond p=1.0 collapses / vanilla clean at every p), the n=2 checkpoint sweep (MMD worsens 80K→100K, steering flat), Karolina migration complete with the multi-node smoke + 100K rerun queued.
