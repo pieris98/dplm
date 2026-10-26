@@ -16,7 +16,10 @@
 #
 # MULTI-NODE training on Karolina plain `qgpu` (whole 8-GPU nodes — multi-node
 # requests must take ALL node GPUs; 1-GPU-per-node slices are rejected).
-# -N2 = 16 GPUs; -N8 = 64 (override at submit: sbatch -N8 …).
+# -N2 = 16 GPUs; scaling REQUIRES matching --gpus: IT4I rejects -N3 with
+# --gpus 16 ("nodes must equal gpus/8"). Use e.g.:
+#   sbatch -N3 --gpus 24 …   (MT auto: 16000/24 = 666/rank)
+#   sbatch -N4 --gpus 32 …   (MT auto: 16000/32 = 500/rank)
 #
 # Batch-size parity with the Meluxina baseline (16K tokens/optimizer step):
 # the script sets per-rank max_tokens = 16000 / total_ranks automatically
