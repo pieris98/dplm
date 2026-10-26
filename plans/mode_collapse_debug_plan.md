@@ -316,11 +316,11 @@ the **local workstation** with checkpoints synced from Karolina.
 | # | Item | Where | Status |
 |---|---|---|---|
 | Q1 | Monitor the 100K early trajectory — `probe/loss_delta` liftoff from 0, `a_frac` < 0.12, `adapter_w` growth; manual early-failure decision at step 10–20K (the plan's pre-registered rule) | Karolina logs | **in flight** |
-| Q2 | P0.7 scorer regression re-run on committed `fn_eval_v1` outputs (validates the eval stack before it becomes the critical path) | local | pending |
+| Q2 | P0.7 scorer regression re-run on committed `fn_eval_v1` outputs (validates the eval stack before it becomes the critical path) | local | **done 2026-10-26** — MRR/MMD/IPR bit-exact; GO metrics drifted ~5% relative: the restored `eval/go.obo` is a different ontology release than September's (file had vanished from local eval/); scorer now LOUD-FAILS on missing --obo (8b2d0e2). Keep this go.obo as the campaign reference |
 | Q3 | Checkpoint sync Karolina → local (final + best + periodic spaced ~10–20K apart) | rsync | pending (at run end) |
-| Q4 | Local eval-stack dry run on a quarantined ckpt — validates generation → IPS → DeepGO-SE → scoring plumbing locally **before** real checkpoints arrive | local | pending |
+| Q4 | Eval-stack validation. Generation stage validated locally (clean 3-arm run on the quarantined ckpt). IPS + DeepGO assets missing locally (eval/ gutted; only go.obo survives) → **Plan A+B (2026-10-26)**: A = cluster Tier-2 eval NOW (eval_pipeline.sbatch, CKPT=auto → newest mid-training ckpt, all assets + java 11 on-cluster); B = restore IPS (35 GB) + deepgo2 data (16 GB) locally via tar-over-ssh + conda openjdk 11 | A: Karolina; B: local | **A submitted / B in progress** |
 | Q5 | Per-layer learning analysis for the paper (Phase 1's paper-grade subset): per-layer adapter ‖W‖ / ‖Δh‖ profiles across the synced ckpt series → layer × step figure; condition-space (s) separability probe | local | pending |
-| Q6 | Tier-2 reframed: predictor-based function-recovery eval on periodic checkpoints (local eval stack) supersedes the old sbatch-on-probe-dirs wiring | local | reframed |
+| Q6 | Tier-2 reframed: predictor-based function-recovery eval on periodic checkpoints — first instance is Q4's cluster run on a mid-training ckpt; subsequent instances local after B | hybrid | **in progress** |
 | Q7 | Phase 2: refined anticipation table + remaining steering cells + Δcoverage/IPS + w-curve (if still relevant) | local; needs new ckpt + first eval numbers | gated on Q4/Q6 |
 | Q8 | Phase 3.5 ablation arms (adapter-input three-way, capacity, regularization) | gated on 100K outcome AND compute (new allocation, or local arms at reduced batch with internal comparability) | gated |
 | Q9 | libibverbs in sandbox | Karolina | **moot** (allocation ends; ~few % step time) |
