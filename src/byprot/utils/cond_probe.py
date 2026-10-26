@@ -288,9 +288,19 @@ class ConditioningProbeCallback(pl.Callback):
                     # identical seeding → both calls draw the same noised
                     # x_t / timesteps / masks, so the loss difference isolates
                     # the condition (otherwise it is dominated by the
-                    # diffusion-noise variance, ~±2 at init)
+                    # diffusion-noise variance, ~±2 at init).
+                    # The force_unconditional patch must wrap ONLY the null
+                    # pass: patching before loss_real too made both passes
+                    # identical and loss_delta exactly 0 forever (live-run
+                    # bug, caught at step 14K of the 2026-10-26 campaign —
+                    # the user flagged the flat line).
                     torch.manual_seed(self.probe_seed)
                     loss_real, _ = pl_module.step(batch_real)
+                    model._encode_conditions = (
+                        lambda conditions, force_unconditional=False,
+                               _orig=orig_encode:
+                        _orig(conditions, force_unconditional=True)
+                    )
                     torch.manual_seed(self.probe_seed)
                     loss_null, _ = pl_module.step(dict(batch))
             finally:
