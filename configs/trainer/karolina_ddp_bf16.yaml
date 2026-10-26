@@ -17,7 +17,9 @@ devices: 8
 num_nodes: 2
 strategy:
   _target_: pytorch_lightning.strategies.DDPStrategy
-  find_unused_parameters: true # = the old 'ddp_find_unused_parameters_true'
+  # find_unused_parameters intentionally OFF: the smoke (2026-10-25) confirmed
+  # every adapter parameter receives gradients each step — the flag only added
+  # an autograd-graph traversal per iteration per rank.
   cluster_environment:
     _target_: lightning_fabric.plugins.environments.TorchElasticEnvironment
 precision: "bf16"
