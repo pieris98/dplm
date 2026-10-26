@@ -46,8 +46,8 @@ run_in_container "$DPLM_PY" -m torch.distributed.run \
   trainer=karolina_ddp_bf16 \
   trainer.num_nodes="$NNODES" \
   trainer.devices="$NPROC_PER_NODE" \
-  datamodule.max_tokens="${MT}" \
-  trainer.max_steps="${MAX_STEPS}" \
+  datamodule.max_tokens="${MT:-1000}" \
+  trainer.max_steps="${MAX_STEPS:-100000}" \
   logger=wandb logger.wandb.offline=True \
   train.test=false \
   ${RESUME_ARGS:-} ${HYDRA_ARGS:-}

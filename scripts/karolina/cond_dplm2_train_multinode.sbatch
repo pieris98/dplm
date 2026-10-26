@@ -44,7 +44,7 @@ source scripts/meluxina/common.sh
 
 ACCOUNT="${ACCOUNT:?export ACCOUNT=<IT4I project id>}"
 export DPLM_BASE="${DPLM_BASE:-/scratch/project/${ACCOUNT}}"
-MAX_STEPS="${MAX_STEPS:-100000}"
+export MAX_STEPS="${MAX_STEPS:-100000}"   # exported: srun passes only exported vars to train_rank.sh
 MAX_RESUBMITS="${MAX_RESUBMITS:-12}"
 RUN_GLOB="cond_dplm2*"
 
