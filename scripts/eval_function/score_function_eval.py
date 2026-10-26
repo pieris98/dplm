@@ -164,6 +164,15 @@ def main():
                 g = obonet.read_obo(args.obo)
                 parents = {n: set(d.get("is_a", [])) for n, d in g.nodes(data=True)}
                 gt_sets = propagate_ancestors(gt_sets, parents)
+            elif args.obo:
+                # LOUD FAIL: a missing --obo file silently skipped GO-DAG
+                # expansion here once and zeroed every GO metric while all
+                # other metrics reproduced (Q2 regression, 2026-10-26).
+                raise SystemExit(
+                    f"--obo file not found: {args.obo} — GO-DAG expansion would "
+                    "be silently skipped and all GO metrics would be wrong. "
+                    "Restore the file (Karolina: $DPLM-repo/eval/go.obo) or drop "
+                    "the --obo flag explicitly.")
 
             # Set-match at a fixed threshold (CFP-Gen-style).
             pred_sets = [
