@@ -119,7 +119,7 @@ the repo since commits `206bf38`/`94ea51d`/`9e2f4c2`. Before (re)submitting:
    - `step_10-…`/`step_20-…` checkpoints written to `$DPLM_LOGS`.
 6. **Resume test**: resubmit the *same* command **without** `FRESH=1` — the log
    must say `resuming from: …step_20-…` and finish with `DONE — reached 20 steps`.
-7. **Full run**: `ACCOUNT=$ACCOUNT FRESH=1 sbatch --export=ALL scripts/karolina/cond_dplm2_train_multinode.sbatch`
+7. **Full run**: `ACCOUNT=$ACCOUNT FRESH=1 sbatch --export=ALL -N2 --gpus 16 -t 37:00:00 scripts/karolina/cond_dplm2_train_multinode.sbatch` — node scaling REQUIRES matching `--gpus` (`-N3 --gpus 24`, `-N4 --gpus 32`; IT4I rejects mismatched pairs); set `-t` to the remaining allocation time
    (100K steps, ~36 h × chunks on 2×8 A100). The self-resubmit chain does NOT
    set FRESH, so chunks resume the fixed run's own checkpoints.
    wandb: offline by default (`WANDB_MODE=offline`); sync afterwards from local:
@@ -154,6 +154,7 @@ scripts/karolina/interactive.sh alloc       # whole node for training debugging
 
 | Symptom | Fix |
 |---|---|
+| Stopping the training for a config/node-count switch: `scancel <id>` resurrects it | the sbatch traps SIGTERM (wall-clock chaining) and auto-resubmits — a plain scancel spawns a fresh job. Use `scancel --signal=KILL <id>` when you *want* it dead, then submit the new configuration |
 | srun: `SLURM_MEM_PER_CPU, SLURM_MEM_PER_GPU, and SLURM_MEM_PER_NODE are mutually exclusive` | you submitted from inside an interactive allocation (`evalsh`/`check` set `--mem`) and `--export=ALL` leaked the mem spec into the job. Fixed in-script (the multinode sbatch unsets the trio before srun) — `git pull` and resubmit. Also `scancel` the chained follow-up job the resubmit machinery fired |
 | **`disk quota exceeded` during an apptainer build/pull** | Apptainer caches docker layers in `~/.apptainer/cache` (HOME = 25 GB; the dplm image's layers are ~20–30 GB). Free it: `rm -rf ~/.apptainer/cache ~/.singularity/cache`, then point cache+temp at scratch — `export APPTAINER_CACHEDIR=$DPLM_BASE/apptainer_cache APPTAINER_TMPDIR=$DPLM_BASE/apptainer_tmp` — and retry (`setup_data.sh` now does this itself) |
 | **`disk quota exceeded` during an apptainer build/pull** | Apptainer caches docker layers in `~/.apptainer/cache` (HOME = 25 GB; the dplm image's layers are ~20–30 GB). Free it: `rm -rf ~/.apptainer/cache ~/.singularity/cache`, then point cache+temp at scratch — `export APPTAINER_CACHEDIR=$DPLM_BASE/apptainer_cache APPTAINER_TMPDIR=$DPLM_BASE/apptainer_tmp` — and retry (`setup_data.sh` now does this itself) |
