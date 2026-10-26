@@ -279,22 +279,19 @@ class ConditioningProbeCallback(pl.Callback):
             # path (one learned null token per type). Filling the batch's
             # padding slots with the null id would sum the null embedding
             # max_labels times — not the CFG null condition.
+            # The force_unconditional patch below wraps ONLY the null pass:
+            # loss_real must run unpatched (real conditions). Patching before
+            # both passes made them bitwise identical and loss_delta exactly 0
+            # forever — survived two fix attempts because the leftover outer
+            # assignment kept re-applying the patch (live-run bug, caught at
+            # step 7K of the 2026-10-26 8-node campaign).
             orig_encode = model._encode_conditions
-            model._encode_conditions = (
-                lambda conditions, force_unconditional=False, _orig=orig_encode:
-                _orig(conditions, force_unconditional=True)
-            )
             try:
                 with torch.no_grad():
                     # identical seeding → both calls draw the same noised
                     # x_t / timesteps / masks, so the loss difference isolates
                     # the condition (otherwise it is dominated by the
                     # diffusion-noise variance, ~±2 at init).
-                    # The force_unconditional patch must wrap ONLY the null
-                    # pass: patching before loss_real too made both passes
-                    # identical and loss_delta exactly 0 forever (live-run
-                    # bug, caught at step 14K of the 2026-10-26 campaign —
-                    # the user flagged the flat line).
                     torch.manual_seed(self.probe_seed)
                     loss_real, log_r = pl_module.step(batch_real)
                     model._encode_conditions = (
