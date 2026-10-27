@@ -2,8 +2,8 @@
 
 *Presenter notes for the weekly meeting. Comparison frame: the 2026-10-20 meeting
 (PI feedback: debug the collapse, validate the pipeline, instrumented retrain).
-Figures are in `reports/figures/`; live data source: the 8-node Karolina run
-(job 5272588 lineage), console probe telemetry at 500-step cadence.*
+Figures are in `reports/figures/`; live data source: the 8-node Karolina run,
+console probe telemetry at 500-step cadence through step 43K.*
 
 ---
 
@@ -17,7 +17,35 @@ the corrected campaign is running at scale (8 nodes, 64 GPUs, step 43K+, on
 schedule to finish 100K inside the allocation), and the instrumented probe is
 producing the first real condition-sensitivity and drift measurements of the
 method.** Two eval-stack regressions were caught and fixed before they could
-contaminate results. One monitoring sensor had a bug (fixed; see below).
+contaminate results. One monitoring sensor had a bug (found live at step 14K;
+fixed; see §3.1).
+
+---
+
+## Metrics used in this report (definitions)
+
+| Metric | What it measures | Direction / reference points |
+|---|---|---|
+| `val/loss` | The **diffusion training criterion on held-out data, with the real GO/IPR labels active**: cross-entropy of reconstructing clean tokens from partially noised inputs, weighted linearly by diffusion timestep, summed over the two tracks (amino-acid + structure). Because the labels are active, it is the *condition-aided* denoising loss — the quantity training minimises. | lower = better; broken campaign plateaued ≈ 1.95 |
+| `val/nll_loss`, `val/ppl` | The same quantity without the timestep weighting (plain negative log-likelihood), and its exponentiation (perplexity) | lower = better; ppl ≈ 2.0 |
+| `val/aatype_loss`, `val/struct_loss` | The per-track split of the diffusion cross-entropy: amino-acid tokens vs structure tokens. The two tracks are trained jointly 25/25/25/25 over four modes (single-sequence, folding, inverse-folding, co-generation) | lower = better; struct carries ≈ 3× the loss mass of aatype |
+| `val/aatype_index_accuracy`, `val/struct_index_accuracy` | Fraction of masked tokens whose predicted token index exactly matches the target, per track | higher = better; aatype ≈ 0.59, struct ≈ 0.28 |
+| `probe/loss_delta` (total / `…_aatype` / `…_struct`) | **The condition-sensitivity sensor**: the training loss computed twice on the same fixed validation batches with identical noising — once with the *real* labels, once with the learned *null* label — and subtracted. Noise, masks and timesteps are held identical by seeding, so the difference isolates exactly one variable: what the labels contribute. Measured per track (aatype / struct) and in total | **negative = labels help denoising**; ≈ 0 = adapters ignore labels; positive = labels hurt. At init exactly 0 by construction |
+| `probe/a_frac` | Alanine fraction of proteins *generated from scratch* by the 8-label probe. Composition-realism sensor: real proteins ≈ 0.09–0.10; the broken campaign's attractor was 0.78 | alarm: > 0.25 at two consecutive probes |
+| `probe/js_real` | Jensen–Shannon divergence (bits) between the probe's amino-acid composition and real-protein composition. 0 = identical composition; scale is small by nature | early-training ≈ 0.01–0.02; growth = composition drift |
+| `probe/mmd` | Maximum mean discrepancy between probe and real sequences in 3-gram ("k-mer spectrum") space — a distributional sequence-realism measure, independent of the labels | lower = closer to real; vanilla ≈ 0.16, broken ≈ 0.85 |
+| `probe/mrr` | Mean reciprocal rank: the probe's per-label output group is ranked among all real label groups — does output-for-label-L land nearest real-data-of-label-L? | chance ≈ 0.1 at this group count; higher = condition steering |
+| `probe/diversity` | Fraction of unique 3-grams across the probe batch — repetition/collapse sensor | 1 = fully diverse; falling = mode collapse |
+| `probe/adapter_w`, `…_max` | Mean / max L2 norm of the adapter up-projection weights over the 33 layers. The adapters start at identity (init norm 0.0043); the norm tracks how far they have moved | init 0.0043; growth = adapter influence growing |
+| `probe/dh_mean`, `…_max` | Relative adapter update magnitude ‖Δh‖/‖h‖ during the probe forward — how strongly the adapters rewrite the transformer's residual stream per layer | 1e-4 at init; large = adapters substantially rewrite representations |
+| `probe/grad_norm` | Global L2 norm of gradients over all conditioning parameters | nonzero = learning; spikes = instability |
+| `probe/alarm` | 0/1 flag from the pre-registered rule: `a_frac` > 0.25 at two consecutive probes after step 5K | 1 = the drift scenario the campaign watches for |
+
+All probe metrics are computed by the in-training callback on **8 fixed label
+prompts × 4 seeds-free generations** against a fixed 256-protein real
+reference subset — no external predictors, no cloud dependency, identical
+setup every 2,000 steps (validations every 500 steps carry the loss-side
+sensors only).
 
 ---
 
@@ -54,28 +82,41 @@ condition-sensitivity decomposition, drift monitors, pre-registered alarm.
 
 ## 3. The fixed campaign — live readings at step 43K
 
-**Health:** val/loss 2.329 → **0.664** (true-pretrained base; the broken
-campaign plateaued at ~1.95). 8 nodes / 64 GPUs at **1.26 it/s** — 1.94× the
-2-node rate, on schedule to finish 100K ~mid-day Oct 27 inside the allocation.
+**Health:** val/loss 2.329 → **0.664** — the condition-aided diffusion loss on
+held-out data, at its best value ever (the broken campaign plateaued at
+≈ 1.95 *total*, and its step-0 start of 2.99 vs this run's 2.33 was itself a
+fingerprint of the missing pretrained base). The aatype-index accuracy
+(0.52 → 0.59) and struct-index accuracy (0.12 → 0.28) both improve — the
+denoising model is genuinely learning on the true pretrained base.
 
 ![val/loss](figures/wk27_val_loss.png)
 
-**Condition-sensitivity (the fixed sensor's first real data):**
+### 3.1 Condition-sensitivity (the fixed sensor's first real data)
+
+`probe/loss_delta` is the measurement that stayed at exactly 0 for the first
+14K steps — because a sensor bug forced the *real*-condition pass through the
+null embedding as well, making the two passes bitwise identical. Fixed
+(`393d643` + the leftover-assignment removal `d2537f1`); live since the
+current leg.
 
 ![loss delta](figures/wk27_loss_delta.png)
 
 - **struct Δ ≈ −0.07, consistently negative**: the GO/IPR labels measurably
   help structure-token prediction.
-- **aatype Δ ≈ 0 (±0.003)**: labels do *not* yet help residue-identity
+- **aatype Δ ≈ 0 (±0.003)**: labels do *not* yet help amino-acid-identity
   prediction.
 - Interpretation: this is the **granularity asymmetry predicted by the
   architecture analysis, observed live** — global protein-level labels carry
-  fold/domain-class information (structure tokens) but no positional leverage
-  for residue identity. This meets the pre-registered trigger for the
-  capacity/position-aware-conditioning ablation conversation (Q8), to be
-  decided with the eval-series numbers after the campaign.
+  fold/domain-class information (which structure tokens to emit) but no
+  positional leverage for residue identity. This meets the pre-registered
+  trigger for the capacity/position-aware-conditioning ablation conversation
+  (Q8), to be decided with the eval-series numbers after the campaign.
 
-**Generation-side drift (the monitored risk, elevated but sub-alarm):**
+### 3.2 Generation-side drift (the monitored risk — elevated, sub-alarm)
+
+The probe also generates 32 proteins **from scratch** every 2,000 steps and
+scores their composition/diversity against a fixed real reference — the drift
+sensors:
 
 ![generation quality](figures/wk27_generation_quality.png)
 
@@ -92,6 +133,13 @@ campaign plateaued at ~1.95). 8 nodes / 64 GPUs at **1.26 it/s** — 1.94× the
   necessarily `best.ckpt`, is the right one for the generation numbers.
 
 ![adapter growth](figures/wk27_adapter_growth.png)
+
+`adapter_w` (norm of the adapter up-projection weights, init 0.0043) has grown
+to ≈ 20 and is still climbing; `dh_max` shows single-layer adapter updates
+reaching ~16% of the residual-stream norm. The adapters are no longer small
+perturbations — they are now a substantial second model layered over the
+frozen base, which is exactly why the struct-vs-aatype decomposition above is
+the diagnostic that matters going forward.
 
 ## 4. Constraint and plan
 
