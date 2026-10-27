@@ -4,6 +4,12 @@ Running log of weekly progress meetings. Newest entry first.
 
 ---
 
+## 2026-10-27 — Weekly meeting report: validated pipeline → running campaign
+
+Presenter report for today's meeting written: [../reports/weekly_meeting_2026-10-27.md](../reports/weekly_meeting_2026-10-27.md) (figures embedded, wandb-vs-console data, vs-last-week framing, Q-queue status, PI asks). Headline: pipeline validated end-to-end, fixed campaign at 43K+ on 8 nodes (1.26 it/s, finishing 100K inside allocation), first real condition-sensitivity decomposition (struct helped, aatype ≈ 0 — granularity asymmetry live), generation drift elevated but sub-alarm, val/loss vs generation-quality decoupling noted for checkpoint selection.
+
+---
+
 ## 2026-10-24/26 — Karolina launch campaign: six smoke rounds → green; fixed campaign launched
 
 **What happened:** the smoke campaign for the fixed retrain ran across six rounds, each surfacing one real launch-path bug (all distinct, none silent): (1) SLURM memory-env leak — submitting from inside an interactive allocation leaked `SLURM_MEM_PER_*` and srun died on the mutually-exclusive trio; (2) `exec run_in_container` — a bash *function*, not a binary (exit 127); (3) `--cleanenv` stripped the DDP env, so every task formed its own 2-process world (16 independent trainings, probe on two "rank 0"s) — the fix passed through Lightning's SLURM validation, which then demanded `ntasks-per-node == devices`, forcing the **architecture switch to torchrun** (1 task per node, all 8 GPUs in one cgroup, torchrun spawns the 8 workers, `TorchElasticEnvironment` natively detected); (4) `CUDA_VISIBLE_DEVICES` stripped → NCCL's NVML topology probe hit `Not Found` on the cgroup-blocked peers (diagnosed interactively: container NVML sees only the allocated GPU); (5) torchrun entrypoint was the interpreter, not the script; (6) `MAX_STEPS` was non-exported (unbound at 100K submission) and the resume override targeted the removed PL-1.x `trainer.resume_from_checkpoint` key instead of `train.ckpt_path`.
