@@ -44,6 +44,14 @@ def main() -> None:
     ap.add_argument("--out", default="eval_runs/ckpt_sweep")
     ap.add_argument("--n-labels", type=int, default=32)
     ap.add_argument("--seqs-per-label", type=int, default=8)
+    # data paths — cluster defaults (eval/cfpgen_eval under /workspace/dplm);
+    # the old local defaults (/home/cherry/...) fail on Karolina
+    ap.add_argument("--test-pkl", default="eval/cfpgen_eval/test.pkl")
+    ap.add_argument("--go-mapping", default="eval/cfpgen_eval/go_mapping.pkl")
+    ap.add_argument("--ipr-mapping", default="eval/cfpgen_eval/ipr_mapping.pkl")
+    ap.add_argument("--len", type=int, default=256)
+    ap.add_argument("--max-iter", type=int, default=256)
+    ap.add_argument("--batch-size", type=int, default=64)
     ap.add_argument("--cfg-scale", type=float, default=1.0)
     ap.add_argument(
         "--arms", default="ours_cond,ours_null,real",
@@ -77,6 +85,12 @@ def main() -> None:
             "--seqs-per-label", str(args.seqs_per_label),
             "--cfg-scale", str(args.cfg_scale),
             "--arms", args.arms,
+            "--test-pkl", args.test_pkl,
+            "--go-mapping", args.go_mapping,
+            "--ipr-mapping", args.ipr_mapping,
+            "--len", str(args.len),
+            "--max-iter", str(args.max_iter),
+            "--batch-size", str(args.batch_size),
             "--out", str(run_dir),
         ]
         score_cmd = [
