@@ -20,6 +20,49 @@ shadows the compiled artifacts and breaks openfold
 
 ---
 
+## Returning with a NEW project allocation (2026-11) — read first
+
+A fresh Meluxina project changes exactly three things: the **account id** in
+the sbatch headers (the old headers carry `p201418`), the **`$PROJECT` path**,
+and nothing else — the SIF, repo, and asset layout steps below are unchanged.
+
+1. After Step 2 (clone), fix the account in one command:
+   ```bash
+   sed -i 's/--account=p201418/--account=<NEW_PROJECT_ID>/' scripts/meluxina/*.sbatch
+   ```
+   (or leave the headers and pass `--account=<NEW_PROJECT_ID>` on every sbatch)
+2. **Transfers into the new project** (from the LOCAL workstation — these are
+   local-only assets; Karolina copies were deleted/are redundant):
+   ```bash
+   # eval data + mappings (small):
+   rsync -av eval/cfpgen_eval/ meluxina:<NEW_PROJECT>/dplm-repo/eval/cfpgen_eval/
+   rsync -av eval/go.obo meluxina:<NEW_PROJECT>/dplm-repo/eval/go.obo
+   rsync -av ~/.cache/esm_torch_hub meluxina:<NEW_PROJECT>/dplm-repo/eval/esm_torch_hub/
+   # DeepGO-SE data (16 GB — the only copy lives on KAROLINA, relay via local):
+   rsync -av --progress karolina:/scratch/project/eu-26-85/dplm-repo/eval/deepgo2/ eval/deepgo2/
+   rsync -av --progress eval/deepgo2/ meluxina:<NEW_PROJECT>/dplm-repo/eval/deepgo2/
+   # the 42K checkpoint from Karolina (2.9 GB — relay via local):
+   rsync -av --progress karolina:/scratch/project/eu-26-85/dplm-logs/cond_dplm2_650m_cfpgen_meluxina/checkpoints/step_41999.0-loss_0.67.ckpt eval_ckpts/
+   rsync -av --progress eval_ckpts/step_41999.0-loss_0.67.ckpt meluxina:<NEW_PROJECT>/dplm-logs/cond_dplm2_650m_cfpgen_meluxina/checkpoints/
+   ```
+   (local `eval/interproscan-5.78-109.0/` was lost — install fresh from EBI,
+   Step 4b below; do NOT copy the Oct 28-29 `-vN` checkpoint duplicates from
+   Karolina — they are the wasted FRESH-cycle re-trainings, see the runbook's
+   FRESH warning and the debug plan's post-launch queue)
+3. **InterProScan install** (Step 4b): EBI HTTPS download + md5 + extraction +
+   java ≥ 11 — the hardened flow lives in
+   `scripts/karolina/setup_data.sh` step 4 (env-driven: run it with
+   `DPLM_BASE=$PROJECT` on Meluxina and only step 4 matters, or copy the
+   wget/md5/extract block manually).
+4. **Training campaign resumes from 42K**: place `step_41999.0-loss_0.67.ckpt`
+   under the checkpoints dir (transfers above) and submit Step 5 with
+   `-- train.ckpt_path=<absolute path to it>` — the LR schedule continues from
+   step 42K. A fresh 100K restart is equally valid (the 42K ckpt is a correct
+   post-fix model; the choice is wall-time: resume ≈ 25 h, fresh ≈ 43 h on
+   1×4-GPU node).
+
+---
+
 ## Step 0 — One-time environment prep (login node)
 
 ```bash
