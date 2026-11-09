@@ -180,4 +180,28 @@ print("cuda_available", torch.cuda.is_available())
 print("cudnn", torch.backends.cudnn.version())
 PY
 
+# ---- Eval assets baked into the image (self-contained hosts) ---------------
+# Everything internet-downloadable (ESM checkpoints, DeepGO data, IPS, a fresh
+# go.obo) is intentionally NOT baked — scripts/eval/download_eval_assets.sh
+# fetches those on each new host's login node. Only the local-only / trivial
+# assets are baked here:
+#
+#   obonet 1.2.0 — GO-DAG parser for the scorer. Replaces the eval/pylibs
+#     PYTHONPATH hack (nothing to pip-install on new hosts any more).
+#   eval/go.obo — the ontology the scorer expands GO ground truth against
+#     (36 MB).
+#   eval/cfpgen_eval/ — the held-out CFP-Gen eval split + label mappings
+#     (~14 MB, local-only asset: stage it into the repo with
+#     `scripts/eval/download_eval_assets.sh --stage-cfpgen` before building —
+#     the files come from the local cfpgen checkout).
+#
+# NOTE: Dockerfile commands run at BUILD time on the build host — they do NOT
+# re-execute when the image is pulled on a new machine. Anything you want
+# present on a new host must either be baked here or fetched by the
+# bootstrap script after the pull.
+RUN python -m pip install --no-cache-dir obonet==1.2.0
+
+COPY eval/go.obo /workspace/dplm/eval/go.obo
+COPY eval/cfpgen_eval/ /workspace/dplm/eval/cfpgen_eval/
+
 CMD ["/bin/bash"]
