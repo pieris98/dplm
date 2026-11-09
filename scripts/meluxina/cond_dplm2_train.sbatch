@@ -48,6 +48,7 @@ echo "[meluxina] SLURM_NODELIST=${SLURM_NODELIST:-unknown}"
 echo "[meluxina] nodes=${NUM_NODES}  gpus/node=${GPUS_PER_NODE}"
 echo "[meluxina] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
 
+export WANDB_MODE="${WANDB_MODE:-offline}"   # default offline — no key needed on new hosts
 if [[ -z "${WANDB_API_KEY:-}" && "${WANDB_MODE:-online}" == "online" ]]; then
   echo "[meluxina] WARNING: WANDB_API_KEY not set; set WANDB_MODE=offline to log locally only."
 fi

@@ -156,9 +156,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ckpt", required=True, help="our trained ConditionalDPLM2 ckpt")
     ap.add_argument("--test-pkl",
-                    default="/home/cherry/dev/phd/cfpgen/data-bin/uniprotKB/cfpgen_general_dataset/test.pkl")
-    ap.add_argument("--go-mapping", default="/home/cherry/dev/phd/cfpgen/go_mapping.pkl")
-    ap.add_argument("--ipr-mapping", default="/home/cherry/dev/phd/cfpgen/ipr_mapping.pkl")
+                    default="eval/cfpgen_eval/test.pkl")
+    ap.add_argument("--go-mapping", default="eval/cfpgen_eval/go_mapping.pkl")
+    ap.add_argument("--ipr-mapping", default="eval/cfpgen_eval/ipr_mapping.pkl")
     ap.add_argument("--n-labels", type=int, default=32)
     ap.add_argument("--seqs-per-label", type=int, default=8)
     ap.add_argument("--batch-size", type=int, default=64,
