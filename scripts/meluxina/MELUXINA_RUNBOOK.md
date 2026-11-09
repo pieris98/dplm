@@ -242,8 +242,9 @@ Login nodes disable user namespaces and don't carry modules into batch shells,
 so **all of it must run inside an allocation** — the sbatch handles that.
 
 ```bash
-# One-time on the LOGIN node: pure-python deps for the scorer, kept OUT of the
-# image via PYTHONPATH (works with sandbox dirs and read-only SIFs alike):
+# obonet for the scorer: image tags built after 2026-11-09 BAKE it — the
+# pylibs install below is only needed for the original cu121-torch220-cond tag
+# (kept OUT of that image via PYTHONPATH; works with sandbox dirs and SIFs):
 python3 -m pip install --target <repo>/eval/pylibs "obonet==1.2.0"
 
 # Full run (generation w=1 for 4 arms + CFG sweep 2/4/8 → IPS → DeepGO-SE → score):
