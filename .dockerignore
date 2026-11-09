@@ -21,3 +21,16 @@ id_ed25519
 .aws
 .config/gh
 .cache/huggingface
+# --- 2026-11-09: keep the build context lean (COPY . . bakes the rest) ---
+data-bin/*
+!data-bin/cfpgen_dplm2_joined
+eval/*
+!eval/go.obo
+!eval/cfpgen_eval
+eval/deepgo2
+eval/interproscan-5.78-109.0
+eval/esm_torch_hub
+eval/ips_temp
+eval_ckpts
+wandb_offline_karolina
+wandb_offline
