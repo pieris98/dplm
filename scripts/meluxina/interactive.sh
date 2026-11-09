@@ -29,7 +29,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-ACCOUNT="${ACCOUNT:-p201418}"
+ACCOUNT="${ACCOUNT:-p201437}"
 QOS="${QOS:-test}"
 GPUS="${GPUS:-4}"
 # NOTE: Meluxina's 'test' QOS caps walltime below 1h (QOSMaxWallDurationPerJobLimit);

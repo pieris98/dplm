@@ -3,12 +3,12 @@
 Copy-paste commands for everything on Meluxina, in order. Assumes you land
 on a **login node** with access to the `gpu` partition.
 
-**Project paths (this project has no `$SCRATCH`):**
+**Project paths (this project has no `$SCRATCH`) — updated for the NEW project p201437 (2026-11-09):**
 
 | Var | Path | Use |
 |---|---|---|
-| `$HOME` | `/home/users/u104556` | small stuff only (quota-limited) |
-| `$PROJECT` | `/project/home/p201418` | **the SIF, HF cache, run artifacts** (large quota) |
+| `$HOME` | `/home/users/<your-uid>` | small stuff only (quota-limited) — **verify: `echo $HOME`** (new project may map a different uid) |
+| `$PROJECT` | `/project/home/p201437` | **the SIF, HF cache, run artifacts** (large quota) — **verify: `echo $PROJECT`** |
 
 **Key idea:** the Apptainer jobs bind-mount only your repo's *code*
 (`src/`, `configs/`, `scripts/`, the CLI scripts) over the image — so a
@@ -23,14 +23,11 @@ shadows the compiled artifacts and breaks openfold
 ## Returning with a NEW project allocation (2026-11) — read first
 
 A fresh Meluxina project changes exactly three things: the **account id** in
-the sbatch headers (the old headers carry `p201418`), the **`$PROJECT` path**,
+the sbatch headers (the old headers carry `p201437`), the **`$PROJECT` path**,
 and nothing else — the SIF, repo, and asset layout steps below are unchanged.
 
-1. After Step 2 (clone), fix the account in one command:
-   ```bash
-   sed -i 's/--account=p201418/--account=<NEW_PROJECT_ID>/' scripts/meluxina/*.sbatch
-   ```
-   (or leave the headers and pass `--account=<NEW_PROJECT_ID>` on every sbatch)
+1. The sbatch headers already carry the new account (`p201437`, updated
+   2026-11-09 in this repo — `git pull` to get it).
 2. **Transfers into the new project** (from the LOCAL workstation — these are
    local-only assets; Karolina copies were deleted/are redundant):
    ```bash

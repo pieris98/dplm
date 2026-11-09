@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=fn_eval
-#SBATCH --account=p201418
+#SBATCH --account=p201437
 #SBATCH --partition=gpu
 #SBATCH --qos=short
 #SBATCH --nodes=1
