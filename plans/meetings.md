@@ -4,6 +4,12 @@ Running log of weekly progress meetings. Newest entry first.
 
 ---
 
+## 2026-11-10 — Weekly meeting report: three weeks in one — validation, launch, 42K banked, Meluxina switch
+
+Presenter report for today's meeting (3-week gap since 10-20): root-cause fix validated (23-check gauntlet), launch campaign (six rounds → torchrun), corrected campaign banked **42K steps** on Karolina before the allocation expired (live condition-sensitivity decomposition: struct −0.07 / aatype ≈ 0 — granularity asymmetry confirmed; generation drift elevated but sub-alarm), Meluxina p201437 return prepared (runbook + self-contained image redesign). Report: [../reports/weekly_meeting_2026-11-10.md](../reports/weekly_meeting_2026-11-10.md) (figures embedded).
+
+---
+
 ## 2026-10-27 — Weekly meeting report: validated pipeline → running campaign
 
 Presenter report for today's meeting written: [../reports/weekly_meeting_2026-10-27.md](../reports/weekly_meeting_2026-10-27.md) (figures embedded, wandb-vs-console data, vs-last-week framing, Q-queue status, PI asks). Headline: pipeline validated end-to-end, fixed campaign at 43K+ on 8 nodes (1.26 it/s, finishing 100K inside allocation), first real condition-sensitivity decomposition (struct helped, aatype ≈ 0 — granularity asymmetry live), generation drift elevated but sub-alarm, val/loss vs generation-quality decoupling noted for checkpoint selection.
