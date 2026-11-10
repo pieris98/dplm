@@ -14,6 +14,22 @@ Presenter report for today's meeting (3-week gap since 10-20): root-cause fix va
 
 Presenter report for today's meeting written: [../reports/weekly_meeting_2026-10-27.md](../reports/weekly_meeting_2026-10-27.md) (figures embedded, wandb-vs-console data, vs-last-week framing, Q-queue status, PI asks). Headline: pipeline validated end-to-end, fixed campaign at 43K+ on 8 nodes (1.26 it/s, finishing 100K inside allocation), first real condition-sensitivity decomposition (struct helped, aatype ≈ 0 — granularity asymmetry live), generation drift elevated but sub-alarm, val/loss vs generation-quality decoupling noted for checkpoint selection.
 
+### PI feedback (post-report)
+
+1. **Per-condition embedding visualization** — t-SNE/dimensionality-reduction on embeddings of the fine-tuned conditional model vs vanilla vs real, with **per-condition data points on the same plot** (colors per condition) — not mean-pooled whole-model embeddings — so we can see *which directions* the conditioning actually moves generation.
+2. **Per-condition metric plots** — `js_real`, `mmd`, `mrr`, aatype/a_frac **per condition** (distributions across conditions, not whole-model averages); requires subsetting the evaluation data per condition.
+3. **Grounded struct-vs-aatype asymmetry study** — no presumptions: measure what vanilla DPLM-2 does during diffusion for both tracks, implement mechanisms to measure how the adapters affect each track separately, and build the mechanistic insight from those measurements.
+4. **The airtight function claim** — unconditional-generation metrics declining (e.g. diversity) is acceptable; the paper's main claim must be **function-related**: adapters make DPLM-2 *better* at the prompted function, measured by DeepGO-SE / IPS / other established function-conditioning metrics (survey what other papers use). Mode-collapse monitoring stays, but the claim rests on function steering.
+
+### Planned next steps (from the feedback)
+
+| # | Action | Feeds |
+|---|---|---|
+| N1 | **Per-condition eval plots**: one ckpt from the 42K series → generation for all 32 held-out labels (both ours_cond and vanilla) → per-label `js_real`, `mmd`, `mrr`, `a_frac`, per-family Fmax; distributions across conditions + per-condition embedding panels (real / vanilla / cond, colored per condition) | PI items 1+2 |
+| N2 | **Track-asymmetry study**: frozen-base per-track loss baseline (adapters absent) vs adapter-run per-track loss/Δ; per-layer gradient attribution (aatype-only vs struct-only backward → adapter-param norms); per-track logit sensitivity under label swaps → mechanistic write-up | PI item 3 |
+| N3 | **Function-claim survey + controls**: metrics used by ProGen/CFP-Gen/ZymCTRL/ESM3 for function-conditioned generation; add the **label-shuffled control arm** (generation with permuted labels → steering metrics must drop to chance) to make the claim airtight | PI item 4 |
+| N4 | All three need the **eval stack on the 42K ckpt** (commands ready, local 3090) — N1/N3 generation runs can share one pass | — |
+
 ---
 
 ## 2026-10-24/26 — Karolina launch campaign: six smoke rounds → green; fixed campaign launched
